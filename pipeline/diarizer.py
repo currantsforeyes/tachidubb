@@ -136,23 +136,65 @@ def diarize_speakers(audio_path: str,
         return []
 
 def assign_speakers_to_segments(segments: list[dict], speaker_turns: list[tuple]) -> list[dict]:
-    """Attach a 'speaker' field to each transcript segment by max temporal overlap."""
+    """Assign diarized speakers without collapsing a multi-person dialogue.
+
+    Transcription segments may span several turns.  When word timings are
+    available, split such a segment at speaker changes before TTS; assigning
+    the whole block to its largest overlap would make every line use one voice.
+    """
     if not speaker_turns:
         for s in segments:
             s.setdefault("speaker", "SPEAKER_00")
         return segments
 
-    for seg in segments:
-        s, e = seg["start"], seg["end"]
+    def speaker_for_span(start: float, end: float) -> str:
         best_overlap = 0.0
         best_spk = "SPEAKER_00"
         for ts, te, spk in speaker_turns:
-            ov = max(0.0, min(e, te) - max(s, ts))
-            if ov > best_overlap:
-                best_overlap = ov
+            overlap = max(0.0, min(end, te) - max(start, ts))
+            if overlap > best_overlap:
+                best_overlap = overlap
                 best_spk = spk
-        seg["speaker"] = best_spk
-    return segments
+        return best_spk
+
+    assigned: list[dict] = []
+    for seg in segments:
+        words = [w for w in seg.get("words", []) if w.get("word", "").strip()]
+        if not words:
+            seg["speaker"] = speaker_for_span(seg["start"], seg["end"])
+            assigned.append(seg)
+            continue
+
+        current: list[dict] = []
+        current_spk = ""
+
+        def flush_words() -> None:
+            if not current:
+                return
+            text = " ".join(w["word"].strip() for w in current).strip()
+            if not text:
+                return
+            assigned.append({
+                **seg,
+                "start": float(current[0].get("start", seg["start"])),
+                "end": float(current[-1].get("end", seg["end"])),
+                "text": text,
+                "words": list(current),
+                "speaker": current_spk or "SPEAKER_00",
+            })
+
+        for word in words:
+            start = float(word.get("start", seg["start"]))
+            end = float(word.get("end", seg["end"]))
+            word_spk = speaker_for_span(start, end)
+            if current and word_spk != current_spk:
+                flush_words()
+                current = []
+            current.append(word)
+            current_spk = word_spk
+        flush_words()
+
+    return assigned
 
 
 def _total_duration(speaker_turns, spk) -> float:
