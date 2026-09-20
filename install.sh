@@ -85,7 +85,7 @@ else
 fi
 
 # ── NLTK data ──
-python3 -c "import nltk; nltk.download('punkt', quiet=True); nltk.download('punkt_tab', quiet=True)"
+python3 -c "import nltk; d='nltk_data'; nltk.download('punkt', download_dir=d, quiet=True); nltk.download('punkt_tab', download_dir=d, quiet=True)"
 ok "NLTK data ready"
 
 # ── Create launcher ──

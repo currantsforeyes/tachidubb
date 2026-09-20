@@ -253,7 +253,7 @@ if "%MODEL_CHOICE%"=="3" ollama pull qwen2.5:3b
 :: ── NLTK data ───────────────────────────────────────────────────
 echo.
 echo Downloading NLTK sentence tokenizer data...
-python -c "import nltk; nltk.download('punkt', quiet=True); nltk.download('punkt_tab', quiet=True)"
+python -c "import nltk; d='nltk_data'; nltk.download('punkt', download_dir=d, quiet=True); nltk.download('punkt_tab', download_dir=d, quiet=True)"
 
 :: ── Create folders ──────────────────────────────────────────────
 if not exist uploads mkdir uploads

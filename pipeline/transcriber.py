@@ -9,9 +9,26 @@ Uses:
 import logging
 import os
 import gc
+from pathlib import Path
 from typing import Optional
 
 log = logging.getLogger("tachidubb.transcriber")
+
+
+def _configure_nltk_data() -> None:
+    """Make the project-local tokenizer data visible to WhisperX.
+
+    WhisperX alignment needs NLTK's punkt_tab package for languages including
+    Russian. Keeping it under the project makes Windows installs reproducible
+    and avoids relying on a per-user NLTK cache.
+    """
+    try:
+        import nltk
+        data_dir = Path(__file__).resolve().parents[1] / "nltk_data"
+        if data_dir.exists() and str(data_dir) not in nltk.data.path:
+            nltk.data.path.insert(0, str(data_dir))
+    except Exception:
+        pass
 
 
 def _get_device():
@@ -59,6 +76,7 @@ def transcribe(
       ]
     Also returns detected language code.
     """
+    _configure_nltk_data()
     import whisperx
 
     # whisperx requires None for auto-detection; "auto" is a UI sentinel value
