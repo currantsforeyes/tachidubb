@@ -3843,6 +3843,7 @@ function HomeView({ system, voicePresets, sphereOn, onJobSubmitted }) {
   const [model, setModel] = useState(() => _lsGet('model', 'aya-expanse:8b'));
   const [whisperModel, setWhisperModel] = useState(() => _lsGet('whisperModel', 'large-v3'));
   const [speakerMode, setSpeakerMode] = useState(() => _lsGet('speakerMode', 'main'));
+  const [speakerCount, setSpeakerCount] = useState(() => _lsGet('speakerCount', '0'));
   const [voicePreset, setVoicePreset] = useState(() => _lsGet('voicePreset', 'auto'));
   const [voiceStyle, setVoiceStyle] = useState('');
   const [ttsSpeed, setTtsSpeed] = useState(() => _lsGet('ttsSpeed', 'balanced'));
@@ -3876,6 +3877,7 @@ function HomeView({ system, voicePresets, sphereOn, onJobSubmitted }) {
   useEffect(() => { _lsSet('model', model); }, [model]);
   useEffect(() => { _lsSet('whisperModel', whisperModel); }, [whisperModel]);
   useEffect(() => { _lsSet('speakerMode', speakerMode); }, [speakerMode]);
+  useEffect(() => { _lsSet('speakerCount', speakerCount); }, [speakerCount]);
   useEffect(() => { _lsSet('voicePreset', voicePreset); }, [voicePreset]);
   useEffect(() => { _lsSet('ttsSpeed', ttsSpeed); }, [ttsSpeed]);
   useEffect(() => { _lsSet('contextHint', contextHint); }, [contextHint]);
@@ -3926,6 +3928,7 @@ function HomeView({ system, voicePresets, sphereOn, onJobSubmitted }) {
     fd.append('keep_bg', keepBg);
     fd.append('whisper_model', whisperModel);
     fd.append('speaker_mode', speakerMode);
+    fd.append('speaker_count', speakerCount);
     fd.append('context_hint', contextHint);
     fd.append('voice_style', voiceStyle);
     fd.append('voice_preset', voicePreset);
@@ -4189,6 +4192,14 @@ function HomeView({ system, voicePresets, sphereOn, onJobSubmitted }) {
             </button>
           ))}
         </div>
+        {speakerMode === 'all' && (
+          <Field label="Known speaker count" hint="Use when the cast is known. Auto can merge short, fast dialogue.">
+            <Select value={speakerCount} onChange={setSpeakerCount}>
+              <option value="0" style={{ background: '#16161c' }}>auto-detect</option>
+              {[2, 3, 4, 5, 6].map(n => <option key={n} value={String(n)} style={{ background: '#16161c' }}>{n} speakers</option>)}
+            </Select>
+          </Field>
+        )}
         <Field label="Voice preset" hint="Auto-clone uses each speaker's extracted reference. Pick a preset to override.">
           <Select value={voicePreset} onChange={setVoicePreset}>
             <option value="auto" style={{ background: '#16161c' }}>auto · clone source</option>

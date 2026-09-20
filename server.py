@@ -954,6 +954,7 @@ async def run_pipeline(
     whisper_model: str,
     reference_audio: str = "",
     speaker_mode: str = "main",
+    speaker_count: int = 0,
     context_hint: str = "",
     voice_style: str = "",
     voice_preset: str = "auto",
@@ -1108,7 +1109,13 @@ async def run_pipeline(
         # 4. Diarize
         update(status="diarizing", progress=38, step_detail="Identifying speakers...")
         hf_token = os.getenv("HF_TOKEN", "")
-        speaker_turns = diarize_speakers(audio_16k, hf_token=hf_token)
+        requested_speakers = speaker_count if speaker_count >= 2 else None
+        speaker_turns = diarize_speakers(
+            audio_16k,
+            min_speakers=requested_speakers,
+            max_speakers=requested_speakers,
+            hf_token=hf_token,
+        )
         segments = assign_speakers_to_segments(segments, speaker_turns)
 
         # Store raw transcript preview for UI
@@ -1244,6 +1251,7 @@ async def run_pipeline(
             "model": model,
             "context_hint": context_hint,
             "speaker_mode": speaker_mode,
+            "speaker_count_requested": speaker_count,
             "reference_audio": reference_audio,
             "voice_style": voice_style,
             "voice_preset": voice_preset,
@@ -1599,6 +1607,7 @@ async def start_dub(
     keep_bg: bool = Form(False),
     whisper_model: str = Form("large-v3"),
     speaker_mode: str = Form("main"),   # "main" | "all"
+    speaker_count: int = Form(0),         # 0 = automatic; 2-20 = force count
     context_hint: str = Form(""),
     voice_style: str = Form(""),
     voice_preset: str = Form("auto"),
@@ -1654,6 +1663,10 @@ async def start_dub(
                 "https://huggingface.co/pyannote/speaker-diarization-community-1",
             ],
         }, 400)
+    if speaker_count < 0 or speaker_count > 20:
+        return JSONResponse({"error": "Speaker count must be between 2 and 20, or auto."}, 400)
+    if speaker_count == 1:
+        speaker_count = 0
 
     job_id = uuid.uuid4().hex[:8]
     work = OUTPUT_DIR / job_id
@@ -1691,6 +1704,7 @@ async def start_dub(
         "target_lang": target_lang,
         "model": model,
         "speaker_mode": speaker_mode,
+        "speaker_count_requested": speaker_count,
         "context_hint": context_hint,
         "voice_style": voice_style,
         "voice_preset": voice_preset,
@@ -1717,6 +1731,7 @@ async def start_dub(
         "whisper_model": whisper_model,
         "reference_audio": ref_path,
         "speaker_mode": speaker_mode,
+        "speaker_count": speaker_count,
         "context_hint": context_hint,
         "voice_style": voice_style,
         "voice_preset": voice_preset,
