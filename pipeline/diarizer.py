@@ -183,10 +183,25 @@ def assign_speakers_to_segments(segments: list[dict], speaker_turns: list[tuple]
                 "speaker": current_spk or "SPEAKER_00",
             })
 
+        labeled_words = []
         for word in words:
             start = float(word.get("start", seg["start"]))
             end = float(word.get("end", seg["end"]))
-            word_spk = speaker_for_span(start, end)
+            labeled_words.append((word, speaker_for_span(start, end)))
+
+        # A forced speaker count can create a one-word flip at a turn
+        # boundary.  If a very short word is bracketed by the same speaker,
+        # retain the surrounding sentence speaker instead of creating an
+        # unusable TTS fragment (e.g. a lone "Again").
+        for index, (word, word_spk) in enumerate(labeled_words):
+            duration = float(word.get("end", seg["end"])) - float(word.get("start", seg["start"]))
+            if duration < 0.5 and 0 < index < len(labeled_words) - 1:
+                previous_spk = labeled_words[index - 1][1]
+                next_spk = labeled_words[index + 1][1]
+                if previous_spk == next_spk:
+                    labeled_words[index] = (word, previous_spk)
+
+        for word, word_spk in labeled_words:
             if current and word_spk != current_spk:
                 flush_words()
                 current = []
