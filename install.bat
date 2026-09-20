@@ -18,33 +18,35 @@ echo.
 
 :: ── Check Python ────────────────────────────────────────────────
 echo [1/7] Checking Python...
-:: Detect Python - skip Microsoft Store stub, fall back to 'py' launcher
+:: Prefer a verified project venv, then an explicit Python 3.11 launcher.
+:: Do not silently reuse an incomplete venv or an unrelated newer Python.
 set "PY_CMD="
+set "PROJECT_VENV=0"
 
-:: Reuse TachiDUBB's own supported virtual environment when present.
-:: This avoids selecting an unrelated, unsupported system Python first.
 if exist "venv\Scripts\python.exe" (
-    for /f "tokens=1,2" %%a in ('venv\Scripts\python.exe --version 2^>^&1') do (
-        if "%%a"=="Python" set "PY_CMD=venv\Scripts\python.exe"
+    venv\Scripts\python.exe -m pip --version >nul 2>&1
+    if not errorlevel 1 (
+        set "PY_CMD=venv\Scripts\python.exe"
+        set "PROJECT_VENV=1"
     )
 )
 
-:: Try python.exe first, but skip if it's the Store stub
-where python >nul 2>&1
-if "%PY_CMD%"=="" if not errorlevel 1 (
-    :: Store stub responds to --version with a "Python was not found" message.
-    :: Real Python responds with "Python X.Y.Z". We detect real Python by checking output.
-    for /f "tokens=1,2" %%a in ('python --version 2^>^&1') do (
-        if "%%a"=="Python" set "PY_CMD=python"
-    )
-)
-
-:: Fall back to py launcher if python isn't real
+:: The launcher can target 3.11 even when `python` points at a newer release.
 if "%PY_CMD%"=="" (
     where py >nul 2>&1
     if not errorlevel 1 (
-        for /f "tokens=1,2" %%a in ('py -3 --version 2^>^&1') do (
-            if "%%a"=="Python" set "PY_CMD=py -3"
+        for /f "tokens=1,2" %%a in ('py -3.11 --version 2^>^&1') do (
+            if "%%a"=="Python" set "PY_CMD=py -3.11"
+        )
+    )
+)
+
+:: Fall back to python.exe, while skipping the Microsoft Store stub.
+if "%PY_CMD%"=="" (
+    where python >nul 2>&1
+    if not errorlevel 1 (
+        for /f "tokens=1,2" %%a in ('python --version 2^>^&1') do (
+        if "%%a"=="Python" set "PY_CMD=python"
         )
     )
 )
@@ -52,7 +54,7 @@ if "%PY_CMD%"=="" (
 if "%PY_CMD%"=="" (
     echo.
     echo  [!] Python not found ^(or Microsoft Store stub detected^).
-    echo      Please install Python 3.10, 3.11, or 3.12 from:
+    echo      Please install Python 3.11 from:
     echo      https://www.python.org/downloads/
     echo.
     echo      [IMPORTANT] During install, check:
@@ -69,20 +71,19 @@ if "%PY_CMD%"=="" (
 for /f "tokens=2" %%v in ('%PY_CMD% --version 2^>^&1') do set PYVER=%%v
 echo      Python !PYVER! found  (using: %PY_CMD%)
 
-:: Validate Python version (3.10-3.12)
+:: Validate the fork's tested Python version.
 for /f "tokens=1,2 delims=." %%a in ("!PYVER!") do (
     set PYMAJ=%%a
     set PYMIN=%%b
 )
 if !PYMAJ! NEQ 3 goto bad_python
-if !PYMIN! LSS 10 goto bad_python
-if !PYMIN! GTR 12 goto bad_python
+if !PYMIN! NEQ 11 goto bad_python
 goto python_ok
 
 :bad_python
 echo.
-echo  [!] Python !PYVER! is not supported. Need 3.10, 3.11, or 3.12.
-echo      VoxCPM2 requires Python 3.10 - 3.12.
+    echo  [!] Python !PYVER! is not supported. Need Python 3.11.
+    echo      This fork pins Python 3.11 for its CUDA and WhisperX stack.
 echo.
 echo      Download compatible version: https://www.python.org/downloads/release/python-3120/
 pause
@@ -133,7 +134,14 @@ echo      FFmpeg found
 :: ── Virtual environment ─────────────────────────────────────────
 echo.
 echo [3/7] Creating Python virtual environment...
-if not exist venv (
+if "%PROJECT_VENV%"=="1" (
+    echo      verified project venv exists
+) else if exist venv (
+    echo  [!] Existing venv is incomplete or damaged.
+    echo      Rename or remove only the .\venv folder, then re-run install.bat.
+    pause
+    exit /b 1
+) else (
     %PY_CMD% -m venv venv
     if errorlevel 1 (
         echo  [!] venv creation failed
@@ -141,12 +149,16 @@ if not exist venv (
         exit /b 1
     )
     echo      venv created
-) else (
-    echo      venv exists
 )
 
 call venv\Scripts\activate.bat
 python -m pip install --upgrade pip wheel setuptools --quiet
+python -c "import sys; raise SystemExit(0 if sys.prefix != sys.base_prefix else 1)"
+if errorlevel 1 (
+    echo  [!] Failed to activate the project venv.
+    pause
+    exit /b 1
+)
 
 :: ── PyTorch with CUDA ───────────────────────────────────────────
 echo.

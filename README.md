@@ -208,11 +208,15 @@ Source detection is automatic (Whisper). Translation goes through whatever Ollam
 | **VRAM** | 8 GB | 12 GB+ | VoxCPM2 + Whisper + a translation LLM coexist |
 | **RAM** | 16 GB | 32 GB | Audio-separator (background preservation) is hungry |
 | **Disk** | 20 GB | 40 GB+ | Models + outputs |
-| **GPU** | Any CUDA 12.0+ | RTX 30/40 series | CPU fallback works but ~15× slower |
-| **Python** | 3.10–3.12 | 3.11 | |
+| **GPU** | Any CUDA 12.0+ | RTX 30/40/50 series | CPU fallback works but ~15× slower |
+| **Python** | 3.11 | 3.11 | Installed into a project-local venv |
 | **OS** | Win 10+, Linux, macOS | — | macOS requires CPU mode |
 
 No GPU? It still runs — just expect long jobs. The pipeline auto-falls back to `edge-tts` (Microsoft cloud TTS) if VoxCPM2 won't load, which sacrifices voice cloning but produces intelligible output fast.
+
+### Isolated Python environment
+
+Windows setup creates and uses `venv` inside the TachiDUBB folder. It never installs packages into ComfyUI or your system Python. The installer verifies that this venv is healthy before reuse; if it reports a damaged environment, remove only `venv` and run `install.bat` again.
 
 ### Disk budget (what gets downloaded)
 
