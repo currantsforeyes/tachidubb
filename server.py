@@ -4560,7 +4560,7 @@ async def _retranslate_stage(job_id: str, cp: dict, model: str,
             raise JobCancelled(f"Job {job_id} cancelled by user")
         job.update(kwargs); save_job(job)
     try:
-        update(status="translating", progress=45, model=model,
+        update(status="translating", progress=45, model=model, error=None,
                context_hint=context_hint, target_lang=target_lang,
                step_detail=f"Retranslating with {model}...")
         effective_src = cp.get("effective_src", "en")
@@ -4583,6 +4583,7 @@ async def _retranslate_stage(job_id: str, cp: dict, model: str,
         })
         update(
             status="awaiting_translation_review", progress=63,
+            error=None,
             step_detail="Retranslated — review and continue",
             checkpoint_stage="translation_done",
         )
