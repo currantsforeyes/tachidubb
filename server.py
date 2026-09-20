@@ -1636,8 +1636,24 @@ async def start_dub(
         else:
             return JSONResponse({
                 "error": f"No translation model installed. Pull one via 'ollama pull aya-expanse:8b' "
-                         f"or use the Models panel."
+                          f"or use the Models panel."
             }, 400)
+
+    # Multi-speaker dubbing requires diarization.  Without an HF token
+    # pyannote is skipped and every line silently receives SPEAKER_00's
+    # fallback reference, which is worse than an explicit setup error.
+    if speaker_mode == "all" and not os.getenv("HF_TOKEN", "").strip():
+        return JSONResponse({
+            "error": (
+                "Multi-speaker dubbing needs Hugging Face diarization, but HF_TOKEN "
+                "is not configured. Add HF_TOKEN=hf_xxx to .env, accept the "
+                "pyannote model terms, restart TachiDUBB, and retry."
+            ),
+            "setup_urls": [
+                "https://huggingface.co/settings/tokens",
+                "https://huggingface.co/pyannote/speaker-diarization-community-1",
+            ],
+        }, 400)
 
     job_id = uuid.uuid4().hex[:8]
     work = OUTPUT_DIR / job_id
