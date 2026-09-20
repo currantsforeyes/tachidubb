@@ -16,6 +16,7 @@ uploads/*
 !uploads/.gitkeep
 outputs/*
 !outputs/.gitkeep
+nltk_data/
 jobs_db/*.json
 !jobs_db/.gitkeep
 tachidubb.db
