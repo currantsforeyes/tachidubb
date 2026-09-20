@@ -1617,9 +1617,9 @@ async def start_dub(
         _preferred = [
             "aya-expanse:8b",      # Cohere multilingual, best EN↔RU
             "mistral-nemo:12b",    # Mistral, strong for European langs
-            "qwen2.5:14b",         # Qwen non-thinking, very good
-            "qwen3:8b",            # Qwen3, thinking optional
-            "qwen2.5:7b",          # Qwen smaller, fast
+            "qwen2.5:14b",         # Qwen direct-output, very good
+            "qwen2.5:7b",          # Recommended balance of quality and VRAM
+            "qwen2.5:3b",          # Lightweight direct-output fallback
             "gemma3:12b",          # Gemma3 (no thinking) — good quality
             "gemma3:4b",           # Gemma3 small
             "llama3.2:3b",         # Tiny fallback
@@ -1750,8 +1750,8 @@ async def start_batch_dub(
     _ok, _installed = await check_ollama()
     if _ok and model not in _installed:
         _preferred = ["aya-expanse:8b", "mistral-nemo:12b", "qwen2.5:14b",
-                      "qwen3:8b", "qwen2.5:7b", "gemma3:12b", "gemma3:4b",
-                      "llama3.2:3b", "qwen3:14b", "gemma4:e4b", "gemma4:e2b"]
+                      "qwen2.5:7b", "qwen2.5:3b", "gemma3:12b", "gemma3:4b",
+                      "llama3.2:3b", "gemma4:e4b", "gemma4:e2b"]
         _fallback = next((m for m in _preferred if m in _installed), None)
         if _fallback:
             log.warning(f"Batch: '{model}' not installed; using '{_fallback}'")
@@ -2414,8 +2414,8 @@ async def start_quick_test(
     _ok, _installed = await check_ollama()
     if _ok and model not in _installed:
         _preferred = ["aya-expanse:8b", "mistral-nemo:12b", "qwen2.5:14b",
-                      "qwen3:8b", "qwen2.5:7b", "gemma3:12b", "gemma3:4b",
-                      "llama3.2:3b", "qwen3:14b", "gemma4:e4b", "gemma4:e2b"]
+                      "qwen2.5:7b", "qwen2.5:3b", "gemma3:12b", "gemma3:4b",
+                      "llama3.2:3b", "gemma4:e4b", "gemma4:e2b"]
         _fallback = next((m for m in _preferred if m in _installed), None)
         if _fallback:
             log.warning(f"[quick_test] '{model}' not installed; using '{_fallback}'")
@@ -3050,8 +3050,8 @@ async def start_showcase(
     _ok, _installed = await check_ollama()
     if _ok and model not in _installed:
         _preferred = ["aya-expanse:8b", "mistral-nemo:12b", "qwen2.5:14b",
-                      "qwen3:8b", "qwen2.5:7b", "gemma3:12b", "gemma3:4b",
-                      "llama3.2:3b", "qwen3:14b", "gemma4:e4b", "gemma4:e2b"]
+                      "qwen2.5:7b", "qwen2.5:3b", "gemma3:12b", "gemma3:4b",
+                      "llama3.2:3b", "gemma4:e4b", "gemma4:e2b"]
         _fallback = next((m for m in _preferred if m in _installed), None)
         if _fallback:
             log.warning(f"[showcase] '{model}' not installed; using '{_fallback}'")
@@ -3301,8 +3301,8 @@ async def redub_job(
     _ok, _installed = await check_ollama()
     if _ok and chosen_model not in _installed:
         _preferred = ["aya-expanse:8b", "mistral-nemo:12b", "qwen2.5:14b",
-                      "qwen3:8b", "qwen2.5:7b", "gemma3:12b", "gemma3:4b",
-                      "llama3.2:3b", "qwen3:14b", "gemma4:e4b", "gemma4:e2b"]
+                      "qwen2.5:7b", "qwen2.5:3b", "gemma3:12b", "gemma3:4b",
+                      "llama3.2:3b", "gemma4:e4b", "gemma4:e2b"]
         _fallback = next((m for m in _preferred if m in _installed), None)
         if _fallback:
             log.warning(f"[redub] '{chosen_model}' not installed; using '{_fallback}'")

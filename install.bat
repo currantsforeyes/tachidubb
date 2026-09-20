@@ -236,18 +236,18 @@ echo  ========================================
 echo   Pulling default translation model
 echo  ========================================
 echo  Choose a model:
-echo    1) qwen3:8b  - Recommended  ^(5GB,  ~6GB VRAM^)
-echo    2) qwen3:14b - Best quality ^(8GB, ~10GB VRAM^)
-echo    3) qwen3:4b  - Lightweight  ^(3GB,  ~3GB VRAM^)
+echo    1) qwen2.5:7b  - Recommended  ^(4.7GB, ~6GB VRAM^)
+echo    2) qwen2.5:14b - Best quality ^(9GB,   ~10GB VRAM^)
+echo    3) qwen2.5:3b  - Lightweight  ^(1.9GB, ~3GB VRAM^)
 echo    4) Skip ^(pull later from UI^)
 echo.
 set "MODEL_CHOICE="
 set /p MODEL_CHOICE="Select [1-4, default=1]: "
 if "%MODEL_CHOICE%"=="" set "MODEL_CHOICE=1"
 
-if "%MODEL_CHOICE%"=="1" ollama pull qwen3:8b
-if "%MODEL_CHOICE%"=="2" ollama pull qwen3:14b
-if "%MODEL_CHOICE%"=="3" ollama pull qwen3:4b
+if "%MODEL_CHOICE%"=="1" ollama pull qwen2.5:7b
+if "%MODEL_CHOICE%"=="2" ollama pull qwen2.5:14b
+if "%MODEL_CHOICE%"=="3" ollama pull qwen2.5:3b
 
 :nltk_setup
 :: ── NLTK data ───────────────────────────────────────────────────

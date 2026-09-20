@@ -3890,7 +3890,7 @@ function HomeView({ system, voicePresets, sphereOn, onJobSubmitted }) {
   const installedModels = useMemo(() => {
     const m = system?.ollama?.models;
     if (m && m.length) return m.map(x => typeof x === 'string' ? x : x.name).filter(Boolean);
-    return ['aya-expanse:8b', 'qwen3:8b', 'gemma3:12b', 'llama3.2:3b'];
+    return ['aya-expanse:8b', 'qwen2.5:7b', 'gemma3:12b', 'llama3.2:3b'];
   }, [system]);
 
   // CTA label — depends on mode and schedule

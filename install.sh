@@ -114,15 +114,15 @@ if ! curl -s http://localhost:11434/api/tags &>/dev/null; then
 fi
 echo ""
 echo -e "${B}Choose a model (or skip and pull later from UI):${N}"
-echo "  1) qwen3:8b  — Recommended (5GB)"
-echo "  2) qwen3:14b — Best (8GB)"
-echo "  3) qwen3:4b  — Lightweight (3GB)"
+echo "  1) qwen2.5:7b  — Recommended (4.7GB)"
+echo "  2) qwen2.5:14b — Best (9GB)"
+echo "  3) qwen2.5:3b  — Lightweight (1.9GB)"
 echo "  4) Skip"
 read -p "$(echo -e ${C}'Select [1-4, default=1]: '${N})" -n 1 -r; echo ""
 case "${REPLY:-1}" in
-    1) ollama pull qwen3:8b ;;
-    2) ollama pull qwen3:14b ;;
-    3) ollama pull qwen3:4b ;;
+    1) ollama pull qwen2.5:7b ;;
+    2) ollama pull qwen2.5:14b ;;
+    3) ollama pull qwen2.5:3b ;;
 esac
 
 step "Done!"
