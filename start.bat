@@ -4,6 +4,9 @@ title TachiDUBB Studio - AI Video Dubbing
 
 cd /d "%~dp0"
 
+:: Ollama's per-user Windows installer may not update an already-open PATH.
+if exist "%LOCALAPPDATA%\Programs\Ollama\ollama.exe" set "PATH=%LOCALAPPDATA%\Programs\Ollama;%PATH%"
+
 :: ── Check venv ──────────────────────────────────────────────
 if not exist venv\Scripts\activate.bat (
     echo.

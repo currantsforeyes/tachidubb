@@ -21,9 +21,17 @@ echo [1/7] Checking Python...
 :: Detect Python - skip Microsoft Store stub, fall back to 'py' launcher
 set "PY_CMD="
 
+:: Reuse TachiDUBB's own supported virtual environment when present.
+:: This avoids selecting an unrelated, unsupported system Python first.
+if exist "venv\Scripts\python.exe" (
+    for /f "tokens=1,2" %%a in ('venv\Scripts\python.exe --version 2^>^&1') do (
+        if "%%a"=="Python" set "PY_CMD=venv\Scripts\python.exe"
+    )
+)
+
 :: Try python.exe first, but skip if it's the Store stub
 where python >nul 2>&1
-if not errorlevel 1 (
+if "%PY_CMD%"=="" if not errorlevel 1 (
     :: Store stub responds to --version with a "Python was not found" message.
     :: Real Python responds with "Python X.Y.Z". We detect real Python by checking output.
     for /f "tokens=1,2" %%a in ('python --version 2^>^&1') do (
@@ -43,13 +51,13 @@ if "%PY_CMD%"=="" (
 
 if "%PY_CMD%"=="" (
     echo.
-    echo  [!] Python not found (or Microsoft Store stub detected).
+    echo  [!] Python not found ^(or Microsoft Store stub detected^).
     echo      Please install Python 3.10, 3.11, or 3.12 from:
     echo      https://www.python.org/downloads/
     echo.
     echo      [IMPORTANT] During install, check:
     echo         - "Add Python to PATH"
-    echo         - "Install for all users" (optional but recommended)
+    echo         - "Install for all users" ^(optional but recommended^)
     echo      And DISABLE the "python.exe was not found" Microsoft Store redirector:
     echo         Settings ^> Apps ^> App Execution Aliases ^> turn off python.exe
     echo.
@@ -140,60 +148,27 @@ if not exist venv (
 call venv\Scripts\activate.bat
 python -m pip install --upgrade pip wheel setuptools --quiet
 
-:: ── Core Python packages ────────────────────────────────────────
+:: ── PyTorch with CUDA ───────────────────────────────────────────
 echo.
-echo [4/7] Installing core Python packages...
-echo      (this takes 2-5 minutes, please wait)
-
-pip install --quiet ^
-    fastapi ^
-    "uvicorn[standard]" ^
-    python-multipart ^
-    httpx ^
-    soundfile ^
-    numpy ^
-    pydub ^
-    nltk ^
-    yt-dlp ^
-    edge-tts
+echo [4/7] Installing pinned PyTorch (CUDA 12.8)...
+pip install --quiet -r requirements-cuda128.txt --index-url https://download.pytorch.org/whl/cu128
 if errorlevel 1 (
-    echo  [!] Core package install failed
+    echo  [!] CUDA PyTorch install failed
     pause
     exit /b 1
 )
-echo      Core packages OK
 
-:: ── PyTorch with CUDA ───────────────────────────────────────────
+:: ── Application dependencies ────────────────────────────────────
 echo.
-echo [5/7] Installing PyTorch (CUDA 12.1)...
-python -c "import torch; print(torch.__version__)" >nul 2>&1
+echo [5/7] Installing application dependencies...
+echo      (WhisperX, faster-whisper and VoxCPM2; this may take several minutes)
+pip install --quiet -r requirements.txt
 if errorlevel 1 (
-    echo      Installing PyTorch 2.5+ with CUDA 12.1...
-    pip install --quiet torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
-) else (
-    echo      PyTorch already installed
+    echo  [!] Application dependency install failed
+    pause
+    exit /b 1
 )
-
-:: Whisper
-echo      Installing faster-whisper...
-pip install --quiet faster-whisper
-if errorlevel 1 (
-    echo      Fallback to openai-whisper...
-    pip install --quiet openai-whisper
-)
-echo      Whisper OK
-
-:: ── VoxCPM2 ─────────────────────────────────────────────────────
-echo.
-echo [6/7] Installing VoxCPM2 (voice cloning)...
-echo      (downloads ~5GB model on first synthesis)
-pip install --quiet voxcpm
-if errorlevel 1 (
-    echo  [!] VoxCPM2 install failed - falling back to edge-tts only
-    echo      You can try manually: pip install voxcpm
-) else (
-    echo      VoxCPM2 OK
-)
+echo      Dependencies OK
 
 :: ── Speaker diarization (optional) ──────────────────────────────
 echo.

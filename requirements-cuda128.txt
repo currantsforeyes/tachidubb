@@ -1,0 +1,7 @@
+# Windows NVIDIA CUDA 12.8 runtime for the RTX 50-series compatibility path.
+# Install this file first, with PyTorch's CUDA index:
+#   pip install -r requirements-cuda128.txt --index-url https://download.pytorch.org/whl/cu128
+# Then install requirements.txt from PyPI.
+torch==2.8.0+cu128
+torchvision==0.23.0+cu128
+torchaudio==2.8.0+cu128
