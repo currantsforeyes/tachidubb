@@ -753,6 +753,127 @@ class CosyVoiceEngine(BaseTTSEngine):
         raise NotImplementedError("CosyVoice 2 integration pending")
 
 
+class QwenTTSEngine(BaseTTSEngine):
+    """Qwen3-ASR + Qwen3-TTS Base, isolated from the app's Python runtime.
+
+    Qwen's ASR and TTS packages pin different Transformers releases, so each
+    stage is deliberately launched in its own project-local virtualenv.  ASR
+    transcribes the exact extracted reference WAV; TTS then receives both that
+    text and the same audio for the higher-quality ICL cloning mode.
+    """
+
+    name = "qwen3-tts"
+    default_sample_rate = 24000
+
+    def __init__(self, project_root=None, asr_model="Qwen/Qwen3-ASR-0.6B",
+                 tts_model="Qwen/Qwen3-TTS-12Hz-1.7B-Base"):
+        super().__init__()
+        from pathlib import Path
+        self.project_root = Path(project_root or Path(__file__).resolve().parents[1])
+        self.asr_python = self.project_root / "qwen-runtime" / "Scripts" / "python.exe"
+        self.tts_python = self.project_root / "qwen-tts-runtime" / "Scripts" / "python.exe"
+        self.asr_script = self.project_root / "tools" / "qwen_asr_refs.py"
+        self.worker = self.project_root / "pipeline" / "qwen_tts_worker.py"
+        self.asr_model = asr_model
+        self.tts_model = tts_model
+        self._worker_proc = None
+
+    def load(self):
+        missing = [str(path) for path in (self.asr_python, self.tts_python, self.asr_script, self.worker)
+                   if not path.is_file()]
+        if missing:
+            raise RuntimeError("Qwen quality runtime is not installed: " + ", ".join(missing))
+
+    def unload(self):
+        proc = self._worker_proc
+        self._worker_proc = None
+        if proc is not None and proc.poll() is None:
+            proc.kill()
+
+    def synthesize_segments(self, segments, output_dir, speaker_refs=None,
+                            speaker_transcripts=None, progress_callback=None,
+                            voice_seed=None, tts_speed="quality",
+                            is_cross_lingual=False, target_lang="en"):
+        import json
+        import subprocess
+
+        self.load()
+        speaker_refs = {k: v for k, v in (speaker_refs or {}).items()
+                        if v and os.path.exists(v)}
+        if not speaker_refs:
+            raise RuntimeError("Qwen voice cloning needs a source or uploaded reference voice.")
+        os.makedirs(output_dir, exist_ok=True)
+        env = os.environ.copy()
+        env.update({"PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1",
+                    "HF_HUB_DISABLE_PROGRESS_BARS": "1", "TQDM_DISABLE": "1"})
+
+        references_path = os.path.join(output_dir, "_qwen_reference_transcripts.json")
+        asr_cmd = [str(self.asr_python), str(self.asr_script), "--output", references_path,
+                   "--model", self.asr_model]
+        for speaker, ref_path in speaker_refs.items():
+            asr_cmd.extend(["--reference", f"{speaker}={ref_path}"])
+        log.info("Qwen ASR: transcribing extracted source references")
+        completed = subprocess.run(asr_cmd, env=env, text=True, encoding="utf-8",
+                                   errors="replace", capture_output=True, timeout=1200)
+        if completed.returncode != 0 or not os.path.exists(references_path):
+            detail = (completed.stderr or completed.stdout or "unknown ASR failure")[-1200:]
+            raise RuntimeError(f"Qwen reference transcription failed: {detail}")
+        references = json.loads(open(references_path, encoding="utf-8").read())
+
+        fallback = next(iter(references.values()))
+        specs = []
+        for i, segment in enumerate(segments):
+            speaker = segment.get("speaker", "SPEAKER_00")
+            reference = references.get(speaker, fallback)
+            specs.append({
+                "idx": i,
+                "text": segment.get("translated_text") or segment["text"],
+                "reference_audio": reference["audio"],
+                "reference_text": reference.get("text", ""),
+                "output_path": os.path.join(output_dir, f"seg_{i:04d}.wav"),
+            })
+        job_path = os.path.join(output_dir, "_qwen_tts_job.json")
+        language_names = {"en": "English", "ru": "Russian", "zh": "Chinese", "ja": "Japanese",
+                          "ko": "Korean", "de": "German", "fr": "French", "es": "Spanish",
+                          "it": "Italian", "pt": "Portuguese"}
+        with open(job_path, "w", encoding="utf-8") as handle:
+            json.dump({"model": self.tts_model,
+                       "target_language": language_names.get(target_lang.lower(), target_lang),
+                       "segments": specs}, handle, ensure_ascii=False)
+
+        stderr_path = os.path.join(output_dir, "qwen_tts_worker.log")
+        with open(stderr_path, "w", encoding="utf-8", errors="replace") as stderr:
+            self._worker_proc = subprocess.Popen(
+                [str(self.tts_python), "-u", str(self.worker), job_path],
+                stdout=subprocess.PIPE, stderr=stderr, text=True, encoding="utf-8",
+                errors="replace", bufsize=1, env=env,
+            )
+            results = {}
+            for raw_line in self._worker_proc.stdout:
+                try:
+                    evt = json.loads(raw_line)
+                except json.JSONDecodeError:
+                    continue
+                if evt.get("event") == "loaded":
+                    self._sample_rate = evt.get("sample_rate", self.default_sample_rate)
+                    log.info(f"Qwen3-TTS loaded in {evt.get('seconds')}s")
+                elif evt.get("event") == "segment":
+                    results[evt.get("idx")] = evt
+                    if progress_callback:
+                        progress_callback(len(results), len(specs))
+                elif evt.get("event") == "fatal":
+                    log.error(f"Qwen TTS worker failed: {evt.get('error')}")
+            exit_code = self._worker_proc.wait()
+            self._worker_proc = None
+        if exit_code != 0:
+            raise RuntimeError(f"Qwen TTS worker stopped with exit code {exit_code}; see {stderr_path}")
+        for i, segment in enumerate(segments):
+            result = results.get(i, {})
+            segment["audio_path"] = specs[i]["output_path"] if result.get("ok") else None
+            segment["tts_tier"] = "qwen3-transcript" if result.get("reference_mode") == "transcript" else "qwen3-xvector"
+        return segments
+
+
 class F5TTSEngine(BaseTTSEngine):
     """F5-TTS — zero-shot voice cloning, lighter than VoxCPM2.
 

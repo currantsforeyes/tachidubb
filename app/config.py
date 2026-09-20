@@ -63,7 +63,7 @@ class UserConfig:
     voxcpm_steps: int = 10              # 5–20
 
     # ── TTS ───────────────────────────────────────────────────────────
-    tts_engine: str = "voxcpm"           # "voxcpm" | "f5tts" | "edge-tts"
+    tts_engine: str = "voxcpm"           # "qwen" | "voxcpm" | "f5tts" | "edge-tts"
     tts_speed: str = "balanced"          # "fast" | "balanced" | "quality"
     warmup_on_start: bool = False        # pre-load VoxCPM at server start
 
@@ -109,6 +109,7 @@ def _load_config() -> UserConfig:
         "VOXCPM_MODEL": "voxcpm_model",
         "VOXCPM_CFG": "voxcpm_cfg",
         "VOXCPM_STEPS": "voxcpm_steps",
+        "TACHIDUBB_TTS_ENGINE": "tts_engine",
         "OLLAMA_URL": "ollama_url",
         "WHISPER_MODEL": "whisper_model",
         "TACHIDUBB_OPEN_BROWSER": "open_browser",

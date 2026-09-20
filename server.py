@@ -148,7 +148,7 @@ from pipeline.diarizer import (
     extract_speaker_audio, extract_fallback_reference,
 )
 from pipeline.translator import translate_segments, check_ollama, ollama_pull_stream, unload_ollama_model
-from pipeline.synthesizer import VoxCPMSynthesizer, F5TTSEngine, EdgeTTSFallback
+from pipeline.synthesizer import QwenTTSEngine, VoxCPMSynthesizer, F5TTSEngine, EdgeTTSFallback
 from pipeline.assembler import assemble_dubbed_audio, merge_audio_video, write_srt
 from pipeline.models import get_system_status, MODEL_CATALOG
 from pipeline.vad import apply_vad_filter
@@ -652,7 +652,13 @@ def get_tts_engine():
         return _tts_engine
     _free_gpu_memory()
 
-    requested = cfg.tts_engine  # "voxcpm" | "f5tts" | "edge-tts"
+    requested = cfg.tts_engine  # "qwen" | "voxcpm" | "f5tts" | "edge-tts"
+
+    if requested == "qwen":
+        _tts_engine = QwenTTSEngine()
+        _tts_engine.load()
+        log.info("TTS engine: Qwen3-TTS Base (reference-audio quality mode)")
+        return _tts_engine
 
     # Tier 1: VoxCPM2
     if requested in ("voxcpm", "auto"):
@@ -1397,7 +1403,7 @@ async def run_pipeline(
             first_pipeline_mode = "file_ref"   # user uploaded / file preset
         elif eff_style and eff_style.strip() and not has_ref:
             first_pipeline_mode = "voice_design"
-        elif eff_style and eff_style.strip() and has_ref:
+        elif eff_style and eff_style.strip() and has_ref and cfg.tts_engine != "qwen":
             # User picked a style preset but we already extracted refs from
             # the source video. The user presumably wants a fresh designed
             # voice — drop the source refs.
@@ -1407,6 +1413,8 @@ async def run_pipeline(
             speaker_transcripts = {}
             first_pipeline_mode = "voice_design"
         else:
+            if eff_style and eff_style.strip() and has_ref and cfg.tts_engine == "qwen":
+                log.info("[pipeline] Qwen TTS uses source reference audio; ignoring VoxCPM voice-design style")
             first_pipeline_mode = "source_refs"
 
         update(status="synthesizing", progress=65,
@@ -1428,7 +1436,7 @@ async def run_pipeline(
             pct = 65 + int((done / max(total, 1)) * 20)
             update(progress=min(pct, 85), step_detail=f"Synthesizing: {done}/{total}")
 
-        if isinstance(tts, VoxCPMSynthesizer):
+        if isinstance(tts, (VoxCPMSynthesizer, QwenTTSEngine)):
             segments = tts.synthesize_segments(
                 segments, tts_dir,
                 speaker_refs=speaker_refs,
@@ -3730,7 +3738,7 @@ async def _run_tts_and_merge_stage(
     mode = "source_refs"
     if ref_path and os.path.exists(ref_path):
         mode = "file_ref"
-    elif eff_style and eff_style.strip():
+    elif eff_style and eff_style.strip() and cfg.tts_engine != "qwen":
         mode = "voice_design"
 
     update(
@@ -3816,7 +3824,7 @@ async def _run_tts_and_merge_stage(
                step_detail=f"Synthesizing: {done}/{total_inner}")
 
     if total > 0:
-        if isinstance(tts, VoxCPMSynthesizer):
+        if isinstance(tts, (VoxCPMSynthesizer, QwenTTSEngine)):
             # Determine cross-lingual from state (may be missing from older
             # checkpoints — in that case assume cross-lingual as a safer default
             # since that's the common dubbing use-case)

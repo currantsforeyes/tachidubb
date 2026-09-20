@@ -58,6 +58,11 @@ If you're dubbing a 10-minute video weekly across 5 languages, this saves you ab
 4. Paste YouTube URL → pick language → Start
 ```
 
+For the optional Qwen quality voice backend, run `install-qwen.bat` once and
+then use `start-qwen.bat`. It runs Qwen3-ASR on each extracted source voice
+reference before Qwen3-TTS Base clones it, so it is slower but gives better
+cross-lingual voice identity. The models run one at a time to fit a 12 GB GPU.
+
 ### Linux / macOS
 
 ```bash
