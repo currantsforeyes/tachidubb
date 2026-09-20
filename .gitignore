@@ -1,5 +1,8 @@
 # Python
 venv/
+qwen-runtime/
+qwen-tts-runtime/
+qwen-*.log
 __pycache__/
 *.pyc
 *.pyo
@@ -16,6 +19,7 @@ uploads/*
 !uploads/.gitkeep
 outputs/*
 !outputs/.gitkeep
+outputs/qwen_compare/
 nltk_data/
 jobs_db/*.json
 !jobs_db/.gitkeep
