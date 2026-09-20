@@ -54,7 +54,7 @@ class UserConfig:
     demucs_model: str = "htdemucs_ft"    # Demucs model name
 
     # ── Translation ────────────────────────────────────────────────────
-    translation_model: str = "qwen3:8b"  # default Ollama model
+    translation_model: str = "qwen2.5:7b"  # direct-output Ollama model
     ollama_url: str = "http://localhost:11434"
 
     # ── VoxCPM ────────────────────────────────────────────────────────

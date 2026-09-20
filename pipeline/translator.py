@@ -1154,6 +1154,19 @@ async def translate_segments(segments: list[dict],
     src = lang_name(source_lang)
     tgt = lang_name(target_lang)
 
+    # The Qwen3 Ollama packages available at the time of writing open a
+    # reasoning channel unconditionally.  On affected Ollama releases the
+    # public `think: false` switch is ignored, leaving the translator with
+    # a long chain of thought and no answer.  Refuse this combination before
+    # a dub job wastes its translation checkpoint; Qwen2.5 is direct-output
+    # and has proved reliable for this pipeline.
+    if model.lower().startswith("qwen3:"):
+        raise RuntimeError(
+            f"Ollama model '{model}' is a reasoning model and is not reliable "
+            "for automated dubbing translation on this Ollama version. "
+            "Use 'qwen2.5:7b' instead (or another direct-output translation model)."
+        )
+
     # Preflight: fail fast if the model isn't installed (otherwise user
     # stares at "Translating..." for 4 minutes before a cryptic error).
     await ensure_model_available(target_url, model)
