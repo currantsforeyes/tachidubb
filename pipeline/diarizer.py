@@ -209,7 +209,36 @@ def assign_speakers_to_segments(segments: list[dict], speaker_turns: list[tuple]
             current_spk = word_spk
         flush_words()
 
-    return assigned
+    # Also smooth a micro-turn that lies *between* two transcription chunks.
+    # Unlike the word-level case above, this requires joining it to the next
+    # chunk so a clipped prefix such as "Еще" remains attached to
+    # "заработаем" for translation and TTS.
+    smoothed: list[dict] = []
+    index = 0
+    while index < len(assigned):
+        current = assigned[index]
+        duration = float(current["end"]) - float(current["start"])
+        if (
+            duration < 0.5
+            and smoothed
+            and index + 1 < len(assigned)
+            and smoothed[-1].get("speaker") == assigned[index + 1].get("speaker")
+        ):
+            following = dict(assigned[index + 1])
+            following["start"] = current["start"]
+            following["text"] = (
+                (current.get("text") or "").rstrip() + " " +
+                (following.get("text") or "").lstrip()
+            ).strip()
+            if "words" in current and "words" in following:
+                following["words"] = current["words"] + following["words"]
+            assigned[index + 1] = following
+            index += 1
+            continue
+        smoothed.append(current)
+        index += 1
+
+    return smoothed
 
 
 def _total_duration(speaker_turns, spk) -> float:
