@@ -1709,9 +1709,11 @@ function PresetCard({ p, active, onClick }) {
 function TimelinePanel({ job, onApplied }) {
   const [timeline, setTimeline] = useState(null);
   const [dragging, setDragging] = useState(null);
+  const [playhead, setPlayhead] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const railRef = useRef(null);
+  const videoRef = useRef(null);
 
   useEffect(() => {
     let live = true;
@@ -1733,6 +1735,7 @@ function TimelinePanel({ job, onApplied }) {
     setSaving(true); setError(null);
     const fd = new FormData();
     fd.append('placements', JSON.stringify(timeline.segments.map(s => ({ idx: s.idx, start: s.start }))));
+    fd.append('cuts', JSON.stringify(timeline.cuts || []));
     try {
       const r = await fetch(`/api/dub/${job.id}/timeline`, { method: 'POST', body: fd });
       const d = await r.json();
@@ -1742,12 +1745,25 @@ function TimelinePanel({ job, onApplied }) {
   };
   if (!timeline) return <div className="mono" style={{ fontSize: 11, color: 'var(--ink-3)', padding: '10px 0' }}>{error || 'Loading audio clips…'}</div>;
   const duration = Math.max(timeline.duration || 1, 1);
+  const seek = event => {
+    const r = railRef.current.getBoundingClientRect();
+    const time = Math.max(0, Math.min(duration, (event.clientX-r.left)/r.width*duration));
+    setPlayhead(time); if (videoRef.current) videoRef.current.currentTime = time;
+  };
+  const addCut = () => setTimeline(t => ({...t, cuts: [...new Set([...(t.cuts || []), Number(playhead.toFixed(3))])].sort((a,b)=>a-b)}));
+  const removeCut = cut => setTimeline(t => ({...t, cuts: (t.cuts || []).filter(x => x !== cut)}));
   return <div>
-    <div className="mono" style={{ fontSize: 10, color: 'var(--ink-3)', marginBottom: 10 }}>Drag a block horizontally. The pale marker is its original subtitle start.</div>
-    <div ref={railRef} style={{ height: Math.max(72, timeline.segments.length * 38), position: 'relative', background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: 6, overflow: 'hidden', touchAction: 'none' }}>
+    <div className="mono" style={{ fontSize: 10, color: 'var(--ink-3)', marginBottom: 10 }}>Original picture and audio are the reference. Drag dubbed clips; add cut markers at speaker changes.</div>
+    <video ref={videoRef} src={timeline.source_video_url} controls onTimeUpdate={e=>setPlayhead(e.currentTarget.currentTime)} style={{ width:'100%', maxHeight:300, background:'#000', borderRadius:6, marginBottom:10 }}/>
+    <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:10 }}><button className="btn" onClick={addCut}>Add speaker cut at {fmtSec(playhead)}</button><span className="mono" style={{fontSize:10,color:'var(--ink-3)'}}>Cuts: {(timeline.cuts||[]).map(c=>fmtSec(c)).join(', ') || 'none'}</span></div>
+    <div ref={railRef} onPointerDown={e=>{ if(e.target===e.currentTarget) seek(e); }} style={{ height: Math.max(130, timeline.segments.length * 34 + 66), position: 'relative', background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: 6, overflow: 'hidden', touchAction: 'none' }}>
+      <div style={{position:'absolute',top:8,left:8,fontSize:10,color:'var(--ink-3)'}}>SOURCE VIDEO / ORIGINAL AUDIO</div><div style={{position:'absolute',top:31,left:0,right:0,height:1,background:'var(--line-2)'}}/>
+      <div style={{position:'absolute',top:40,left:8,fontSize:10,color:'var(--accent)'}}>DUBBED GENERATIONS</div>
+      {(timeline.cuts||[]).map(c=><div key={c} onClick={()=>removeCut(c)} title="Click to remove cut" style={{position:'absolute',left:`${c/duration*100}%`,top:0,bottom:0,width:2,background:'var(--warn)',cursor:'pointer'}}/>)}
+      <div style={{position:'absolute',left:`${playhead/duration*100}%`,top:0,bottom:0,width:2,background:'var(--err)',zIndex:4,pointerEvents:'none'}}/>
       {timeline.segments.map((s, row) => {
         const left = s.start / duration * 100, width = Math.max(2, s.duration / duration * 100), original = s.source_start / duration * 100;
-        return <div key={s.idx} style={{ position: 'absolute', top: row * 38 + 6, left: 0, right: 0, height: 28 }}>
+        return <div key={s.idx} style={{ position: 'absolute', top: row * 34 + 60, left: 0, right: 0, height: 26 }}>
           <div style={{ position: 'absolute', left: `${original}%`, top: 0, bottom: 0, width: 1, background: 'var(--ink-4)' }}/>
           <div onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); setDragging(s.idx); move(e, s.idx); }} onPointerMove={e => dragging === s.idx && move(e, s.idx)} onPointerUp={e => { setDragging(null); e.currentTarget.releasePointerCapture(e.pointerId); }} style={{ position: 'absolute', left: `${left}%`, width: `${width}%`, minWidth: 28, height: 28, borderRadius: 4, cursor: 'ew-resize', background: 'var(--accent-dim)', border: '1px solid var(--accent)', color: 'var(--ink)', padding: '5px 7px', overflow: 'hidden', whiteSpace: 'nowrap', fontSize: 10 }} title={s.text}>{s.idx + 1} · {s.speaker} · {fmtSec(s.start)}</div>
         </div>;

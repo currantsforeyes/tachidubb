@@ -4665,11 +4665,17 @@ async def get_dub_timeline(job_id: str):
             "source_end": float(seg.get("end", 0.0)),
             "duration": round(clip_duration, 4),
         })
-    return {"duration": float(cp.get("duration", 0.0)), "segments": rows}
+    return {
+        "duration": float(cp.get("duration", 0.0)), "segments": rows,
+        "cuts": cp.get("timeline_cuts", []),
+        "source_video_url": f"/outputs/{job_id}/source_video.mp4",
+        "source_audio_url": f"/outputs/{job_id}/audio_16k.wav",
+        "dubbed_audio_url": f"/outputs/{job_id}/dubbed_audio.wav",
+    }
 
 
 @app.post("/api/dub/{job_id}/timeline")
-async def apply_dub_timeline(job_id: str, placements: str = Form(...)):
+async def apply_dub_timeline(job_id: str, placements: str = Form(...), cuts: str = Form("[]")):
     """Persist manually dragged clip starts and rebuild without re-synthesis."""
     if job_id not in jobs:
         return JSONResponse({"error": "Job not found"}, 404)
@@ -4682,6 +4688,8 @@ async def apply_dub_timeline(job_id: str, placements: str = Form(...)):
             raise ValueError("placements must be an array")
         starts = {int(row["idx"]): max(0.0, min(float(row["start"]), float(cp["duration"])))
                   for row in incoming}
+        cut_points = sorted({round(max(0.0, min(float(value), float(cp["duration"]))), 3)
+                             for value in json.loads(cuts)})
     except Exception as exc:
         return JSONResponse({"error": f"Invalid placements: {exc}"}, 400)
     work = OUTPUT_DIR / job_id
@@ -4689,6 +4697,7 @@ async def apply_dub_timeline(job_id: str, placements: str = Form(...)):
         idx = int(seg.get("idx", i))
         if idx in starts:
             seg["timeline_start"] = starts[idx]
+    cp["timeline_cuts"] = cut_points
     is_qwen = any(str(seg.get("tts_tier", "")).startswith("qwen3") for seg in cp["segments"])
     try:
         dubbed_wav = str(work / "dubbed_audio.wav")
