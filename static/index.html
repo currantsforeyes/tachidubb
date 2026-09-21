@@ -514,6 +514,7 @@ function LongProgress({ value, color = 'var(--accent)', height = 3 }) {
 function LeftRail({ view, setView, runningJob, awaitingReviewCount, system }) {
   const sections = [
     { id: 'home',        label: 'Home',         hint: 'Upload · queue',       ic: I.home },
+    { id: 'editor',      label: 'Editor',       hint: 'Video · dialogue timing', ic: I.edit },
     { id: 'processing',  label: 'Processing',   hint: runningJob ? 'Live job' : 'Idle', ic: I.processing, badge: runningJob ? '●' : null },
     { id: 'review',      label: 'Review',       hint: awaitingReviewCount > 0 ? 'Wizard pause' : 'Nothing pending', ic: I.review, badge: awaitingReviewCount > 0 ? String(awaitingReviewCount) : null },
     { id: 'result',      label: 'Result',       hint: 'Last completed',       ic: I.result },
@@ -645,7 +646,7 @@ function NavItem({ item, active, onClick, warn }) {
 // ═══════════════════════════════════════════════════════════════════
 function TopBar({ view, runningJob, awaitingReviewCount, onJumpToProcessing, onJumpToReview }) {
   const TITLES = {
-    home: 'Home', processing: 'Processing', review: 'Review · wizard pause',
+    home: 'Home', editor: 'Editor · dialogue timing', processing: 'Processing', review: 'Review · wizard pause',
     result: 'Result', history: 'History', batch: 'Batch queue', system: 'System',
   };
   // Server returns progress 0-100. Normalize to 0-1 for UI math.
@@ -1460,7 +1461,7 @@ function ResultViewInner({ job, jobs, voicePresets, onPickJob, onSwitchToHistory
   }, [job.id, job.completed_at, videoOverrideUrl, videoVersion]);
 
   // Panel open/close
-  const [open, setOpen] = useState({ export: false, subs: false, lipsync: false, regen: false, timeline: false });
+  const [open, setOpen] = useState({ export: false, subs: false, lipsync: false, regen: false });
   const toggle = (k) => setOpen(o => ({ ...o, [k]: !o[k] }));
 
   return (
@@ -1571,17 +1572,50 @@ function ResultViewInner({ job, jobs, voicePresets, onPickJob, onSwitchToHistory
           <RegenPanel job={job} voicePresets={voicePresets} onSubmitted={onSwitchToHistory}/>
         </ExpandPanel>
 
-        <ExpandPanel
-          open={open.timeline} onToggle={() => toggle('timeline')}
-          title="Fine-tune dialogue timing"
-          subtitle="Drag generated voice clips to line up with the video. Rebuilds audio only — no voice regeneration."
-          icon={<span style={{ fontSize: 13 }}>↔</span>}
-        >
-          <TimelinePanel job={job} onApplied={() => { setVideoOverrideUrl(null); setVideoVersion(v => v + 1); }}/>
-        </ExpandPanel>
       </div>
     </div>
   );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// EDITOR VIEW — dedicated source video and dubbed-audio timing workspace.
+// ═══════════════════════════════════════════════════════════════════
+function EditorView({ jobs, selectedJobId, onPickJob, onSwitchToHome }) {
+  const completedJobs = useMemo(
+    () => jobs.filter(j => j.status === 'complete').sort((a, b) => (b.completed_at || b.created || 0) - (a.completed_at || a.created || 0)),
+    [jobs]
+  );
+  const job = useMemo(() => {
+    if (selectedJobId) return completedJobs.find(j => j.id === selectedJobId) || completedJobs[0];
+    return completedJobs[0];
+  }, [completedJobs, selectedJobId]);
+
+  if (!job) {
+    return <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16, padding: 40, background: 'var(--bg)' }}>
+      <div className="caps">No completed jobs yet</div>
+      <div className="serif" style={{ fontSize: 32, letterSpacing: '-0.015em', textAlign: 'center', maxWidth: 480 }}>Nothing to <span style={{ fontStyle: 'italic', color: 'var(--ink-3)' }}>edit</span> yet.</div>
+      <div style={{ fontSize: 13, color: 'var(--ink-3)', textAlign: 'center', maxWidth: 390, lineHeight: 1.5 }}>Finish a dub first, then return here to line up its generated dialogue with the original video and audio.</div>
+      <button onClick={onSwitchToHome} className="btn btn-primary" style={{ marginTop: 8 }}>{I.arrow} Start a dub</button>
+    </div>;
+  }
+
+  return <div style={{ flex: 1, overflow: 'auto', background: 'var(--bg)' }}>
+    <div style={{ maxWidth: 1180, margin: '0 auto', padding: '32px 36px 52px' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 20, marginBottom: 26 }}>
+        <div style={{ flex: 1 }}>
+          <div className="caps" style={{ marginBottom: 8 }}>Dedicated timeline workspace</div>
+          <div className="serif" style={{ fontSize: 32, lineHeight: 1.05, letterSpacing: '-0.015em' }}>Dialogue <span style={{ fontStyle: 'italic', color: 'var(--ink-3)' }}>editor</span></div>
+          <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 10, lineHeight: 1.5 }}>Use the original video and audio as the reference, then place the new dubbed generations beneath it. Speaker cuts are saved with this job.</div>
+        </div>
+        {completedJobs.length > 1 && <div style={{ width: 280, flexShrink: 0 }}><Select value={job.id} onChange={onPickJob}>
+          {completedJobs.slice(0, 20).map(j => <option key={j.id} value={j.id} style={{ background: '#16161c' }}>{(j.source_label || j.source || j.id).slice(0, 50)} · {fmtAge(j.completed_at || j.created)}</option>)}
+        </Select></div>}
+      </div>
+      <div style={{ background: 'var(--bg-1)', border: '1px solid var(--line)', borderRadius: 10, padding: 20 }}>
+        <TimelinePanel job={job} onApplied={() => {}}/>
+      </div>
+    </div>
+  </div>;
 }
 
 // ── Export for Platform ────────────────────────────────────────────
@@ -4688,6 +4722,15 @@ function App() {
             voicePresets={voicePresets}
             sphereOn={sphereOn}
             onJobSubmitted={onJobSubmitted}
+          />
+        )}
+
+        {view === 'editor' && (
+          <EditorView
+            jobs={jobs}
+            selectedJobId={selectedResultJobId}
+            onPickJob={setSelectedResultJobId}
+            onSwitchToHome={() => setView('home')}
           />
         )}
 
