@@ -1496,7 +1496,10 @@ async def run_pipeline(
         # 7. Assemble (with loudness normalization)
         update(status="assembling", progress=88, step_detail="Assembling dubbed audio...")
         dubbed_wav = str(work / "dubbed_audio.wav")
-        assemble_dubbed_audio(segments, duration, dubbed_wav, tts.sample_rate, apply_loudnorm=True)
+        assemble_dubbed_audio(
+            segments, duration, dubbed_wav, tts.sample_rate, apply_loudnorm=True,
+            fit_to_slots=isinstance(tts, QwenTTSEngine),
+        )
         _save_placements(work, segments)
 
         # 8. Merge with video
@@ -3861,8 +3864,10 @@ async def _run_tts_and_merge_stage(
 
     update(status="assembling", progress=88, step_detail="Assembling dubbed audio...")
     dubbed_wav = str(work / audio_output_name)
-    assemble_dubbed_audio(segments, state["duration"], dubbed_wav,
-                          tts.sample_rate, apply_loudnorm=True)
+    assemble_dubbed_audio(
+        segments, state["duration"], dubbed_wav, tts.sample_rate,
+        apply_loudnorm=True, fit_to_slots=isinstance(tts, QwenTTSEngine),
+    )
     _save_placements(work, segments)
 
     update(status="merging", progress=93, step_detail="Rendering final video...")

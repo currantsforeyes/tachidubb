@@ -107,7 +107,8 @@ def _atempo_stretch(wav_path: str, speed: float) -> str:
 
 
 def assemble_dubbed_audio(segments, total_duration, output_path,
-                          sample_rate=48000, apply_loudnorm=True):
+                           sample_rate=48000, apply_loudnorm=True,
+                           fit_to_slots=False):
     """Place each TTS segment at its original timestamp (numpy-based mix).
 
     Handling of overlong TTS segments (Russian/Spanish are often 20-30%
@@ -117,6 +118,11 @@ def assemble_dubbed_audio(segments, total_duration, output_path,
       segment's slot — slight overlap sounds FAR better than the chipmunk
       effect from aggressive pitch-shift.
     - Total audio may exceed total_duration; caller should NOT use -shortest.
+
+    Qwen's reference-cloning output includes more natural pauses than the
+    source. ``fit_to_slots`` uses pitch-preserving tempo adjustment up to
+    1.40x and anchors each segment to its original timestamp, preventing a
+    small early overrun from shifting the entire remaining dub.
     """
     import numpy as np
     import soundfile as sf
@@ -163,7 +169,10 @@ def assemble_dubbed_audio(segments, total_duration, output_path,
             # a slightly more aggressive stretch to compensate.
             text = (seg.get("translated_text") or "").lstrip()
             has_emotion = text.startswith("(") and ")" in text[:30]
-            max_stretch = 1.22 if has_emotion else 1.15
+            if fit_to_slots:
+                max_stretch = 1.40
+            else:
+                max_stretch = 1.22 if has_emotion else 1.15
 
             stretched_path = audio_path
             if slot_dur > 0.2 and tts_dur > slot_dur * 1.05:
@@ -204,9 +213,10 @@ def assemble_dubbed_audio(segments, total_duration, output_path,
                 data[:fade_samples] *= fade_in
                 data[-fade_samples:] *= fade_out
 
-            # Position: use original start, but shift forward if it would overlap
-            # an earlier segment that's still playing.
-            start = max(seg["start"], current_end)
+            # Standard engines preserve natural timing by avoiding overlap.
+            # Qwen is explicitly time-fit to each subtitle window, so keep the
+            # original position instead of accumulating downstream drift.
+            start = seg["start"] if fit_to_slots else max(seg["start"], current_end)
             offset = int(start * sample_rate)
             end = min(offset + len(data), n_samples)
             length = end - offset
