@@ -108,7 +108,7 @@ def _atempo_stretch(wav_path: str, speed: float) -> str:
 
 def assemble_dubbed_audio(segments, total_duration, output_path,
                            sample_rate=48000, apply_loudnorm=True,
-                           fit_to_slots=False):
+                           fit_to_slots=False, tail_audio_path=""):
     """Place each TTS segment at its original timestamp (numpy-based mix).
 
     Handling of overlong TTS segments (Russian/Spanish are often 20-30%
@@ -123,6 +123,11 @@ def assemble_dubbed_audio(segments, total_duration, output_path,
     source. ``fit_to_slots`` uses pitch-preserving tempo adjustment up to
     1.40x and anchors each segment to its original timestamp, preventing a
     small early overrun from shifting the entire remaining dub.
+
+    When the Qwen path has completed all dialogue before the video ends, its
+    source tail is mixed back in from the end of the final subtitle window.
+    This retains an outro's ambience/effects without reintroducing the source
+    language under the translated dialogue.
     """
     import numpy as np
     import soundfile as sf
@@ -149,6 +154,7 @@ def assemble_dubbed_audio(segments, total_duration, output_path,
     valid_count = 0
     stretched_count = 0
     current_end = 0.0  # track cumulative end time to push next segments forward if needed
+    restored_source_tail = False
 
     for seg in segments:
         audio_path = seg.get("audio_path")
@@ -238,9 +244,36 @@ def assemble_dubbed_audio(segments, total_duration, output_path,
     if stretched_count > 0:
         log.info(f"Time-stretched {stretched_count}/{valid_count} segments (pitch preserved)")
 
+    if fit_to_slots and tail_audio_path and os.path.exists(tail_audio_path) and segments:
+        try:
+            tail_start = max(float(seg.get("end", 0.0)) for seg in segments)
+            if tail_start < total_duration:
+                tail, tail_sr = sf.read(tail_audio_path, dtype="float32")
+                if tail.ndim > 1:
+                    tail = tail.mean(axis=1)
+                source_offset = int(tail_start * tail_sr)
+                tail = tail[source_offset:]
+                if tail_sr != sample_rate and len(tail) > 1:
+                    new_len = int(len(tail) * sample_rate / tail_sr)
+                    indices = np.linspace(0, len(tail) - 1, new_len)
+                    tail = np.interp(indices, np.arange(len(tail)), tail).astype(np.float32)
+                offset = int(tail_start * sample_rate)
+                length = min(len(tail), len(mix) - offset)
+                if length > 0:
+                    fade = min(int(0.03 * sample_rate), length)
+                    if fade:
+                        tail[:fade] *= np.linspace(0.0, 1.0, fade, dtype=np.float32)
+                    mix[offset:offset + length] += tail[:length]
+                    current_end = max(current_end, min(total_duration, offset + length / sample_rate))
+                    restored_source_tail = True
+                    log.info(f"Restored {current_end - tail_start:.1f}s source ambience tail")
+        except Exception as exc:
+            log.warning(f"Could not restore source ambience tail: {exc}")
+
     # Trim trailing silence beyond last actual audio (keep small tail)
-    if current_end > 0 and current_end + 0.5 < target_duration:
-        mix = mix[:int((current_end + 0.5) * sample_rate)]
+    if current_end > 0 and current_end + (0.0 if restored_source_tail else 0.5) < target_duration:
+        final_duration = current_end if restored_source_tail else current_end + 0.5
+        mix = mix[:int(final_duration * sample_rate)]
 
     # Prevent clipping before loudnorm
     max_val = float(np.abs(mix).max())

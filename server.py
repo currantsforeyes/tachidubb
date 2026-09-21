@@ -1499,6 +1499,7 @@ async def run_pipeline(
         assemble_dubbed_audio(
             segments, duration, dubbed_wav, tts.sample_rate, apply_loudnorm=True,
             fit_to_slots=isinstance(tts, QwenTTSEngine),
+            tail_audio_path=audio_16k if isinstance(tts, QwenTTSEngine) else "",
         )
         _save_placements(work, segments)
 
@@ -3867,6 +3868,7 @@ async def _run_tts_and_merge_stage(
     assemble_dubbed_audio(
         segments, state["duration"], dubbed_wav, tts.sample_rate,
         apply_loudnorm=True, fit_to_slots=isinstance(tts, QwenTTSEngine),
+        tail_audio_path=state.get("audio_16k", "") if isinstance(tts, QwenTTSEngine) else "",
     )
     _save_placements(work, segments)
 
