@@ -1460,7 +1460,7 @@ function ResultViewInner({ job, jobs, voicePresets, onPickJob, onSwitchToHistory
   }, [job.id, job.completed_at, videoOverrideUrl, videoVersion]);
 
   // Panel open/close
-  const [open, setOpen] = useState({ export: false, subs: false, lipsync: false, regen: false });
+  const [open, setOpen] = useState({ export: false, subs: false, lipsync: false, regen: false, timeline: false });
   const toggle = (k) => setOpen(o => ({ ...o, [k]: !o[k] }));
 
   return (
@@ -1569,6 +1569,15 @@ function ResultViewInner({ job, jobs, voicePresets, onPickJob, onSwitchToHistory
           icon={<span style={{ fontSize: 13 }}>↻</span>}
         >
           <RegenPanel job={job} voicePresets={voicePresets} onSubmitted={onSwitchToHistory}/>
+        </ExpandPanel>
+
+        <ExpandPanel
+          open={open.timeline} onToggle={() => toggle('timeline')}
+          title="Fine-tune dialogue timing"
+          subtitle="Drag generated voice clips to line up with the video. Rebuilds audio only — no voice regeneration."
+          icon={<span style={{ fontSize: 13 }}>↔</span>}
+        >
+          <TimelinePanel job={job} onApplied={() => { setVideoOverrideUrl(null); setVideoVersion(v => v + 1); }}/>
         </ExpandPanel>
       </div>
     </div>
@@ -1695,6 +1704,59 @@ function PresetCard({ p, active, onClick }) {
       )}
     </button>
   );
+}
+
+function TimelinePanel({ job, onApplied }) {
+  const [timeline, setTimeline] = useState(null);
+  const [dragging, setDragging] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  const railRef = useRef(null);
+
+  useEffect(() => {
+    let live = true;
+    fetch(`/api/dub/${job.id}/timeline`).then(r => r.json()).then(d => {
+      if (live) { if (d.error) setError(d.error); else setTimeline(d); }
+    }).catch(e => live && setError(String(e)));
+    return () => { live = false; };
+  }, [job.id]);
+
+  const move = (event, idx) => {
+    const rail = railRef.current;
+    if (!rail || !timeline) return;
+    const rect = rail.getBoundingClientRect();
+    const start = Math.max(0, Math.min(timeline.duration, (event.clientX - rect.left) / rect.width * timeline.duration));
+    setTimeline(t => ({ ...t, segments: t.segments.map(s => s.idx === idx ? { ...s, start } : s) }));
+  };
+  const apply = async () => {
+    if (!timeline) return;
+    setSaving(true); setError(null);
+    const fd = new FormData();
+    fd.append('placements', JSON.stringify(timeline.segments.map(s => ({ idx: s.idx, start: s.start }))));
+    try {
+      const r = await fetch(`/api/dub/${job.id}/timeline`, { method: 'POST', body: fd });
+      const d = await r.json();
+      if (!r.ok || d.error) throw new Error(d.error || 'Timeline rebuild failed');
+      onApplied();
+    } catch (e) { setError(e.message); } finally { setSaving(false); }
+  };
+  if (!timeline) return <div className="mono" style={{ fontSize: 11, color: 'var(--ink-3)', padding: '10px 0' }}>{error || 'Loading audio clips…'}</div>;
+  const duration = Math.max(timeline.duration || 1, 1);
+  return <div>
+    <div className="mono" style={{ fontSize: 10, color: 'var(--ink-3)', marginBottom: 10 }}>Drag a block horizontally. The pale marker is its original subtitle start.</div>
+    <div ref={railRef} style={{ height: Math.max(72, timeline.segments.length * 38), position: 'relative', background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: 6, overflow: 'hidden', touchAction: 'none' }}>
+      {timeline.segments.map((s, row) => {
+        const left = s.start / duration * 100, width = Math.max(2, s.duration / duration * 100), original = s.source_start / duration * 100;
+        return <div key={s.idx} style={{ position: 'absolute', top: row * 38 + 6, left: 0, right: 0, height: 28 }}>
+          <div style={{ position: 'absolute', left: `${original}%`, top: 0, bottom: 0, width: 1, background: 'var(--ink-4)' }}/>
+          <div onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); setDragging(s.idx); move(e, s.idx); }} onPointerMove={e => dragging === s.idx && move(e, s.idx)} onPointerUp={e => { setDragging(null); e.currentTarget.releasePointerCapture(e.pointerId); }} style={{ position: 'absolute', left: `${left}%`, width: `${width}%`, minWidth: 28, height: 28, borderRadius: 4, cursor: 'ew-resize', background: 'var(--accent-dim)', border: '1px solid var(--accent)', color: 'var(--ink)', padding: '5px 7px', overflow: 'hidden', whiteSpace: 'nowrap', fontSize: 10 }} title={s.text}>{s.idx + 1} · {s.speaker} · {fmtSec(s.start)}</div>
+        </div>;
+      })}
+    </div>
+    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 5 }} className="mono"><span style={{ fontSize: 10, color: 'var(--ink-4)' }}>0:00</span><span style={{ fontSize: 10, color: 'var(--ink-4)' }}>{fmtSec(duration)}</span></div>
+    {error && <div style={{ color: 'var(--err)', fontSize: 11, marginTop: 10 }}>{error}</div>}
+    <button className="btn btn-primary" disabled={saving} onClick={apply} style={{ marginTop: 12 }}>{saving ? 'Rebuilding timing…' : 'Apply timing to video'}</button>
+  </div>;
 }
 
 // ── Expandable panel chrome ─────────────────────────────────────────

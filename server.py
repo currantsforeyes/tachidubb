@@ -4638,6 +4638,79 @@ async def _retranslate_stage(job_id: str, cp: dict, model: str,
         update(status="error", error=str(e))
 
 
+@app.get("/api/dub/{job_id}/timeline")
+async def get_dub_timeline(job_id: str):
+    """Return existing rendered segments as movable timeline clips."""
+    cp = _load_checkpoint(job_id, "tts_done")
+    if not cp:
+        return JSONResponse({"error": "Timeline requires a completed TTS pass"}, 404)
+    import soundfile as sf
+    placement_map = {row.get("idx"): row for row in _load_placements(OUTPUT_DIR / job_id)}
+    rows = []
+    for i, seg in enumerate(cp.get("segments", [])):
+        audio_path = seg.get("audio_path", "")
+        if not audio_path or not os.path.exists(audio_path):
+            continue
+        try:
+            info = sf.info(audio_path)
+            clip_duration = info.frames / info.samplerate
+        except Exception:
+            continue
+        placement = placement_map.get(seg.get("idx", i), {})
+        rows.append({
+            "idx": seg.get("idx", i), "text": seg.get("translated_text", ""),
+            "speaker": seg.get("speaker", "SPEAKER_00"),
+            "start": float(seg.get("timeline_start", placement.get("dub_start", seg.get("start", 0.0)))),
+            "source_start": float(seg.get("start", 0.0)),
+            "source_end": float(seg.get("end", 0.0)),
+            "duration": round(clip_duration, 4),
+        })
+    return {"duration": float(cp.get("duration", 0.0)), "segments": rows}
+
+
+@app.post("/api/dub/{job_id}/timeline")
+async def apply_dub_timeline(job_id: str, placements: str = Form(...)):
+    """Persist manually dragged clip starts and rebuild without re-synthesis."""
+    if job_id not in jobs:
+        return JSONResponse({"error": "Job not found"}, 404)
+    cp = _load_checkpoint(job_id, "tts_done")
+    if not cp:
+        return JSONResponse({"error": "Timeline requires a completed TTS pass"}, 404)
+    try:
+        incoming = json.loads(placements)
+        if not isinstance(incoming, list):
+            raise ValueError("placements must be an array")
+        starts = {int(row["idx"]): max(0.0, min(float(row["start"]), float(cp["duration"])))
+                  for row in incoming}
+    except Exception as exc:
+        return JSONResponse({"error": f"Invalid placements: {exc}"}, 400)
+    work = OUTPUT_DIR / job_id
+    for i, seg in enumerate(cp.get("segments", [])):
+        idx = int(seg.get("idx", i))
+        if idx in starts:
+            seg["timeline_start"] = starts[idx]
+    is_qwen = any(str(seg.get("tts_tier", "")).startswith("qwen3") for seg in cp["segments"])
+    try:
+        dubbed_wav = str(work / "dubbed_audio.wav")
+        assemble_dubbed_audio(
+            cp["segments"], cp["duration"], dubbed_wav, cp.get("sample_rate", 48000),
+            apply_loudnorm=True, fit_to_slots=is_qwen,
+            tail_audio_path=cp.get("audio_16k", "") if is_qwen else "",
+        )
+        _save_placements(work, cp["segments"])
+        merge_audio_video(cp["video_path"], dubbed_wav, str(work / "dubbed_video.mp4"),
+                          cp.get("bg_audio_path", "") if cp.get("keep_bg") else "")
+        _save_checkpoint(job_id, work, stage="tts_done", data=cp)
+        job = jobs[job_id]
+        job.update(status="complete", progress=100, output_url=f"/outputs/{job_id}/dubbed_video.mp4",
+                   completed_at=time.time(), step_detail="Timeline timing applied")
+        save_job(job)
+        return {"ok": True, "url": f"/outputs/{job_id}/dubbed_video.mp4?t={int(time.time())}"}
+    except Exception as exc:
+        log.error(f"[timeline] {job_id} rebuild failed: {exc}", exc_info=True)
+        return JSONResponse({"error": str(exc)}, 500)
+
+
 @app.post("/api/dub/{job_id}/regenerate_segment/{seg_idx}")
 async def regenerate_segment(
     job_id: str, seg_idx: int,

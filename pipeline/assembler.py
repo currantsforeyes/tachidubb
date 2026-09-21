@@ -222,7 +222,10 @@ def assemble_dubbed_audio(segments, total_duration, output_path,
             # Standard engines preserve natural timing by avoiding overlap.
             # Qwen is explicitly time-fit to each subtitle window, so keep the
             # original position instead of accumulating downstream drift.
-            start = seg["start"] if fit_to_slots else max(seg["start"], current_end)
+            manual_start = seg.get("timeline_start")
+            start = (float(manual_start) if manual_start is not None else seg["start"])
+            if not fit_to_slots and manual_start is None:
+                start = max(seg["start"], current_end)
             offset = int(start * sample_rate)
             end = min(offset + len(data), n_samples)
             length = end - offset
