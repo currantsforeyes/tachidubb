@@ -13,7 +13,7 @@ Usage:
 import json
 import logging
 import os
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, asdict
 from pathlib import Path
 
 log = logging.getLogger("tachidubb.config")
@@ -27,6 +27,9 @@ STATIC_DIR = BASE / "static"
 PRESETS_DIR = BASE / "presets"
 VOICE_PRESETS_DIR = PRESETS_DIR / "voices"
 USER_GLOSSARY_FILE = PRESETS_DIR / "user_glossary.json"
+# User preferences — persisted across sessions. Simple JSON blob edited by the
+# UI; not schema-validated server-side (it's just a KV store).
+PREFS_FILE = BASE / "user_prefs.json"
 CONFIG_FILE = BASE / "config-user.json"
 
 for _d in (UPLOAD_DIR, OUTPUT_DIR, JOBS_DB, STATIC_DIR, VOICE_PRESETS_DIR):

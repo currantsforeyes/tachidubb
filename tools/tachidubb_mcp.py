@@ -39,7 +39,7 @@ except ImportError:
           file=sys.stderr)
     sys.exit(1)
 
-from tachidubb_client import TachiDUBBClient, TachiDUBBError, DEFAULT_URL
+from tachidubb_client import TachiDUBBClient, DEFAULT_URL
 
 
 mcp = FastMCP(

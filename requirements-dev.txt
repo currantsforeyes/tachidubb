@@ -1,0 +1,12 @@
+# Development / CI tooling. Not needed to run the app.
+# Install:  pip install -r requirements-dev.txt
+ruff>=0.6,<1
+pytest>=8,<10
+
+# Light runtime deps that the test suite transitively imports through
+# pipeline/__init__.py (diarizer -> numpy/soundfile, translator -> httpx).
+# These are already core deps in requirements.txt; pinned here so the CI test
+# job stays small and GPU-free (no torch / whisperx / voxcpm / ffmpeg).
+httpx>=0.27,<1
+numpy>=2.1,<3
+soundfile>=0.13,<1

@@ -7,7 +7,6 @@ Uses:
   - sentence grouping into TTS-friendly segments using word-level timings
 """
 import logging
-import os
 import gc
 from pathlib import Path
 from typing import Optional
@@ -163,7 +162,6 @@ def transcribe(
         log.warning(f"Alignment failed ({e}) - continuing with coarse timestamps")
 
     # ---- 4. Optional diarization ----
-    speaker_segments = None
     if diarize and hf_token:
         try:
             log.info("Running speaker diarization...")
@@ -181,7 +179,6 @@ def transcribe(
                 diarize_segments, {"segments": aligned_segments}
             )
             aligned_segments = aligned_segments_with_speakers["segments"]
-            speaker_segments = diarize_segments
 
             del diarize_model
             gc.collect()

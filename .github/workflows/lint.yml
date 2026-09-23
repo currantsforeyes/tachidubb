@@ -2,9 +2,9 @@ name: lint
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
-    branches: [main]
+    branches: [master]
 
 jobs:
   ruff:
@@ -15,7 +15,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install ruff
-        run: pip install ruff
+        run: pip install -r requirements-dev.txt
       - name: Lint
         run: ruff check . --output-format=github
 
@@ -28,4 +28,16 @@ jobs:
           python-version: "3.11"
       - name: Compile-check all Python files
         run: |
-          python -m compileall -q server.py pipeline/ tools/ app/
+          python -m compileall -q server.py pipeline/ tools/ app/ tests/
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Run tests
+        run: pytest -q

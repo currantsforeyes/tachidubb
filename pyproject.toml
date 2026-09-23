@@ -1,0 +1,44 @@
+# Shared tooling configuration (ruff + pytest).
+# NOTE: there is intentionally no [build-system] / [project] section — the
+# project is run directly (`python server.py`), not installed as a package.
+
+[tool.ruff]
+# Floor supported by the app (see pipeline/models.py check_python: 3.10-3.12).
+target-version = "py310"
+line-length = 100
+# Runtime/vendored trees are already in .gitignore; list them explicitly so
+# linting is deterministic even when ruff is invoked with --no-respect-gitignore.
+exclude = [
+    "venv",
+    "qwen-runtime",
+    "qwen-tts-runtime",
+    "musetalk-runtime",
+    "MuseTalk",
+    "nltk_data",
+    "outputs",
+    "uploads",
+]
+
+[tool.ruff.lint]
+# Conservative, correctness-focused set: pyflakes + the error subset of
+# pycodestyle. This is the classic ruff default, pinned explicitly so the
+# gate does not drift with ruff's own defaults.
+select = ["E4", "E7", "E9", "F"]
+ignore = [
+    "E501",  # line length is the formatter's concern, not the linter's
+    "E701",  # multiple statements on one line (colon) — used deliberately
+    "E702",  # multiple statements on one line (semicolon) — used deliberately
+]
+
+[tool.ruff.lint.per-file-ignores]
+# app/main.py must import after the speechbrain/k2 stub + FFmpeg DLL bootstrap.
+"server.py" = ["E402"]
+"app/main.py" = ["E402"]
+# Package-level convenience re-exports are the module's public surface.
+"pipeline/__init__.py" = ["F401"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Allow `pytest` to import `pipeline.*` and `app.*` without installing.
+pythonpath = ["."]
+addopts = "-q"

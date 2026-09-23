@@ -33,7 +33,7 @@ import logging
 import os
 import re
 import time
-from typing import Optional, Tuple
+from typing import Tuple
 
 log = logging.getLogger("tachidubb.tts_qa")
 

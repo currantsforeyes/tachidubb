@@ -9,6 +9,7 @@ bootstrap block first.
 import logging
 import os
 import random as _random
+import subprocess
 import sys
 import time
 import traceback
@@ -532,7 +533,7 @@ class VoxCPMSynthesizer(BaseTTSEngine):
                 self._worker_stderr_path, "w", encoding="utf-8", errors="replace"
             )
 
-            log.info(f"Launching persistent TTS worker (daemon mode)")
+            log.info("Launching persistent TTS worker (daemon mode)")
             self._worker_proc = subprocess.Popen(
                 [sys.executable, "-u", worker, "--daemon", job_path],
                 stdin=subprocess.PIPE,

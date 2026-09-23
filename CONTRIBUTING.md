@@ -61,7 +61,18 @@ python server.py --reload
 
 ## Tests
 
-There's no full test suite yet (most of the project is integration-tested by running it). For new pure-functions, please add a small `tests/test_<module>.py` using pytest. For pipeline changes, a screenshot or short clip of the result attached to the PR is the most useful evidence.
+CI runs a fast, **GPU-free** pytest suite (`tests/`) plus ruff. Keep it that
+way — tests must not import torch, whisperx, voxcpm, or ffmpeg.
+
+```bash
+pip install -r requirements-dev.txt
+pytest            # run the suite (same as CI)
+ruff check .      # same lint CI runs
+```
+
+For new pure functions, add a small `tests/test_<module>.py`. GPU/ffmpeg
+integration paths are still validated by running the app — for pipeline
+changes, attach a short clip or screenshot to the PR.
 
 ## Commit style
 
@@ -73,7 +84,7 @@ There's no full test suite yet (most of the project is integration-tested by run
 ## Pull requests
 
 1. Open an issue first for anything non-trivial — saves you wasted work if we'd reject it
-2. Branch from `main`
+2. Branch from `master`
 3. Keep the diff focused — don't bundle a refactor with a feature
 4. Update the README if user-visible behavior changes
 5. Be patient — this is maintained by two people in evenings

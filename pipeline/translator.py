@@ -258,7 +258,6 @@ _DOMAIN_GLOSSARIES_RU = [
             "single leg x": "сингл-лег икс",
             "single-leg x": "сингл-лег икс",
             "de la riva": "де ла рива",
-            "reverse de la riva": "реверс де ла рива",
             "dlr": "ДЛР",
             "rdlr": "РДЛР",
             "50/50": "фифти-фифти",
@@ -1124,7 +1123,7 @@ def _parse_numbered(text: str, count: int) -> dict:
     if out:
         return out
     # Fallback: bare non-empty lines in order
-    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    lines = [ln.strip() for ln in text.split("\n") if ln.strip()]
     return {i + 1: lines[i] for i in range(min(count, len(lines)))}
 
 

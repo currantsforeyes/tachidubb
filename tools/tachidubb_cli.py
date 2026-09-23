@@ -25,7 +25,6 @@ import argparse
 import asyncio
 import json
 import sys
-from typing import Optional
 
 # Allow running from anywhere by inserting our own dir into sys.path
 import os as _os
@@ -113,7 +112,7 @@ async def cmd_showcase(c: TachiDUBBClient, a) -> None:
         bid = res["batch_id"]
         print(f"[wait] dubbing {len(res.get('target_langs', []))} langs…", file=sys.stderr)
         await c.wait_for_batch(bid, timeout=a.wait_timeout)
-        print(f"[wait] stitching showcase reel…", file=sys.stderr)
+        print("[wait] stitching showcase reel…", file=sys.stderr)
         info = await c.wait_for_showcase(bid, timeout=a.wait_timeout)
         print(f"[done] {c.showcase_url(bid)}")
         if a.json:
@@ -128,7 +127,7 @@ async def cmd_redub(c: TachiDUBBClient, a) -> None:
             bid = res["batch_id"]
             await c.wait_for_batch(bid, timeout=a.wait_timeout)
             if a.mode == "showcase":
-                info = await c.wait_for_showcase(bid, timeout=a.wait_timeout)
+                await c.wait_for_showcase(bid, timeout=a.wait_timeout)
                 print(f"[done] {c.showcase_url(bid)}")
             else:
                 jobs = await c.list_jobs(batch_id=bid, limit=10)
@@ -184,7 +183,7 @@ async def cmd_showcase_rebuild(c: TachiDUBBClient, a) -> None:
     res = await c.rebuild_showcase(a.batch_id)
     _print_json(res)
     if a.wait:
-        info = await c.wait_for_showcase(a.batch_id, timeout=a.wait_timeout)
+        await c.wait_for_showcase(a.batch_id, timeout=a.wait_timeout)
         print(f"[done] {c.showcase_url(a.batch_id)}")
 
 

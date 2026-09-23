@@ -38,6 +38,18 @@ bin/ffmpeg*
 bin/ffprobe*
 bin/yt-dlp*
 
+# Tooling caches
+.ruff_cache/
+.pytest_cache/
+
+# Optional MuseTalk lip-sync backend (isolated runtime + checkout, ~GBs)
+musetalk-runtime/
+MuseTalk/
+
+# Installer / diagnostic logs (local machine residue)
+app-install*.log
+cuda-install*.log
+
 # OS
 .DS_Store
 Thumbs.db
