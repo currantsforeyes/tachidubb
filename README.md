@@ -402,6 +402,28 @@ Install the optional dep: `pip install audio-separator`. The UI shows a yellow w
 </details>
 
 <details>
+<summary><b>Lip-sync (MuseTalk) button stays greyed out</b></summary>
+
+Lip-sync is optional and needs a one-time setup. Run the readiness check:
+
+```bash
+venv\Scripts\python.exe tools\diagnose_musetalk.py   # Windows
+venv/bin/python tools/diagnose_musetalk.py           # Linux/macOS
+```
+
+It reports exactly what's missing (checkout, weights, the `musetalk-runtime`
+interpreter, runtime deps/CUDA, ffmpeg). If MuseTalk is installed elsewhere,
+point the app at it in `.env`:
+
+```bash
+TACHIDUBB_MUSETALK_DIR=C:\path\to\MuseTalk
+TACHIDUBB_MUSETALK_PYTHON=C:\path\to\musetalk-runtime\Scripts\python.exe
+TACHIDUBB_FFMPEG_BIN=C:\path\to\ffmpeg\bin
+```
+
+</details>
+
+<details>
 <summary><b>Linux ALSA / pulse errors during TTS</b></summary>
 
 We don't play audio — these are warnings from a transitive dep. Ignore unless they actually break the run. `export ALSA_CARD=-1` silences them.

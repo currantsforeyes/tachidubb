@@ -1,4 +1,6 @@
 """MuseTalk lip-sync backend: detection, guide, and command building."""
+from pathlib import Path
+
 import pipeline.lipsync as lipsync
 
 
@@ -146,3 +148,58 @@ def test_build_worker_job():
     assert job["video_path"] == "v.mp4"
     assert job["output_path"] == "o.mp4"
     assert job["ffmpeg_bin"] == "/ffmpeg/bin"
+
+
+# ── resolve_ffmpeg_bin ───────────────────────────────────────────────────
+def test_resolve_ffmpeg_bin_env_override(monkeypatch, tmp_path):
+    monkeypatch.setenv("TACHIDUBB_FFMPEG_BIN", str(tmp_path))
+    assert lipsync.resolve_ffmpeg_bin() == str(tmp_path)
+
+
+def test_resolve_ffmpeg_bin_uses_path(monkeypatch):
+    monkeypatch.delenv("TACHIDUBB_FFMPEG_BIN", raising=False)
+    fake = str(Path("tools") / "ffmpeg.exe")
+    monkeypatch.setattr(lipsync.shutil, "which", lambda name: fake)
+    assert lipsync.resolve_ffmpeg_bin() == str(Path(fake).parent)
+
+
+def test_resolve_ffmpeg_bin_missing(monkeypatch):
+    monkeypatch.delenv("TACHIDUBB_FFMPEG_BIN", raising=False)
+    monkeypatch.setattr(lipsync.shutil, "which", lambda name: None)
+    assert lipsync.resolve_ffmpeg_bin() == ""
+
+
+# ── probe_musetalk ───────────────────────────────────────────────────────
+def test_probe_installed(monkeypatch, tmp_path):
+    repo = make_repo(tmp_path, "v15")
+    set_env(monkeypatch, repo=repo, python=make_runtime(tmp_path))
+    monkeypatch.setattr(lipsync, "resolve_ffmpeg_bin", lambda: "/ffmpeg/bin")
+
+    info = lipsync.probe_musetalk()
+
+    assert info["installed"] is True
+    assert info["version"] == "v15"
+    assert info["runtime_python"] == str(make_runtime(tmp_path))
+    assert info["ffmpeg_bin"] == "/ffmpeg/bin"
+    assert any(c["has_inference"] for c in info["candidates"])
+    assert info["problems"] == []
+
+
+def test_probe_not_installed_lists_problems(monkeypatch, tmp_path):
+    set_env(monkeypatch, repo=tmp_path / "nope")
+    monkeypatch.setattr(lipsync, "resolve_runtime_python", lambda: None)
+
+    info = lipsync.probe_musetalk()
+
+    assert info["installed"] is False
+    assert any("checkout not found" in p for p in info["problems"])
+    assert any("runtime interpreter not found" in p for p in info["problems"])
+
+
+def test_status_includes_probe_when_missing(monkeypatch, tmp_path):
+    set_env(monkeypatch, repo=tmp_path / "nope")
+
+    status = lipsync.lipsync_status_payload()
+
+    assert status["installed"] is False
+    assert status["probe"]["installed"] is False

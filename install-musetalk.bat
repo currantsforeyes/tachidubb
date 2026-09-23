@@ -42,6 +42,10 @@ call download_weights.bat
 popd
 
 echo.
+echo Running MuseTalk diagnostic...
+if exist venv\Scripts\python.exe venv\Scripts\python.exe tools\diagnose_musetalk.py
+
+echo.
 echo MuseTalk is ready. Restart TachiDUBB Studio to enable lip-sync.
 pause
 exit /b 0

@@ -73,6 +73,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mouth region, ~4 GB VRAM fp16): `pipeline/lipsync.py`,
   `pipeline/musetalk_worker.py`, and `install-musetalk.bat` / `.sh` which set
   up an isolated `musetalk-runtime` (OpenMMLab deps stay out of the main venv)
+- `tools/diagnose_musetalk.py` — one-command MuseTalk readiness check
+  (checkout, weights, isolated-runtime deps + CUDA, ffmpeg); the installer runs
+  it automatically. `/api/lip_sync/status` also returns a structured `probe`
+  when MuseTalk isn't ready, and the worker preflights its runtime deps and
+  discovers ffmpeg itself
 - CI `test` job, plus explicit `ruff` + `pytest` configuration in `pyproject.toml`
 
 ### Fixed

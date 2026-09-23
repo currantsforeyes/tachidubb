@@ -16,10 +16,11 @@ Why not ship as a pip dependency of the main venv:
     via ``pipeline/musetalk_worker.py``, mirroring the isolated Qwen runtimes.
 
 This module holds only detection + command construction (pure, unit-testable);
-the actual subprocess orchestration lives in server.py.
+the actual subprocess orchestration lives in app/lipsync.py.
 """
 import logging
 import os
+import shutil
 from pathlib import Path
 from typing import Optional
 
@@ -71,6 +72,19 @@ def resolve_runtime_python() -> Optional[str]:
     return str(default) if default else None
 
 
+def resolve_ffmpeg_bin() -> str:
+    """Directory containing ffmpeg, for MuseTalk's ``--ffmpeg_path``.
+
+    TACHIDUBB_FFMPEG_BIN wins; otherwise the directory of the `ffmpeg` found
+    on PATH. Empty string means we couldn't locate one.
+    """
+    env_bin = os.getenv("TACHIDUBB_FFMPEG_BIN", "").strip()
+    if env_bin and Path(env_bin).is_dir():
+        return env_bin
+    exe = shutil.which("ffmpeg")
+    return str(Path(exe).parent) if exe else ""
+
+
 def _find_weights(repo_dir: Path) -> tuple:
     """Return (version, unet_path, config_path) or (None, None, None).
 
@@ -88,6 +102,55 @@ def _find_weights(repo_dir: Path) -> tuple:
     return None, None, None
 
 
+def probe_musetalk() -> dict:
+    """Detailed MuseTalk install diagnosis. Never raises.
+
+    Used by /api/lip_sync/status and tools/diagnose_musetalk.py so a failed
+    setup is explainable without reading logs. ``installed`` requires a
+    checkout, weights and the runtime interpreter; missing ffmpeg is reported
+    as a problem but does not clear ``installed`` (MuseTalk can still run if
+    its own bundled ffmpeg is passed via TACHIDUBB_FFMPEG_BIN).
+    """
+    candidates = []
+    repo_dir = None
+    for d in candidate_repo_dirs():
+        exists = d.exists()
+        has_inference = exists and (d / "scripts" / "inference.py").exists()
+        candidates.append({"dir": str(d), "exists": exists, "has_inference": has_inference})
+        if has_inference and repo_dir is None:
+            repo_dir = d
+
+    version = unet = config = None
+    if repo_dir is not None:
+        version, unet, config = _find_weights(repo_dir)
+
+    python = resolve_runtime_python()
+    ffmpeg_bin = resolve_ffmpeg_bin()
+
+    problems = []
+    if repo_dir is None:
+        problems.append("MuseTalk checkout not found (need scripts/inference.py)")
+    elif not unet:
+        problems.append("Model weights not found under models/ (run download_weights)")
+    if python is None:
+        problems.append("musetalk-runtime interpreter not found (run install-musetalk)")
+    if not ffmpeg_bin:
+        problems.append("ffmpeg not found (set TACHIDUBB_FFMPEG_BIN to its bin/ folder)")
+
+    return {
+        "engine": LIPSYNC_ENGINE,
+        "installed": repo_dir is not None and unet is not None and python is not None,
+        "repo_dir": str(repo_dir) if repo_dir is not None else None,
+        "version": version,
+        "unet_model_path": unet,
+        "unet_config": config,
+        "runtime_python": python,
+        "ffmpeg_bin": ffmpeg_bin,
+        "candidates": candidates,
+        "problems": problems,
+    }
+
+
 def find_musetalk_setup() -> Optional[dict]:
     """Locate a usable MuseTalk install.
 
@@ -95,27 +158,17 @@ def find_musetalk_setup() -> Optional[dict]:
     model weights, and the dedicated runtime interpreter. Returns a dict or
     None (callers surface a guide instead).
     """
-    for d in candidate_repo_dirs():
-        if not d.exists():
-            continue
-        if not (d / "scripts" / "inference.py").exists():
-            continue
-        version, unet, config = _find_weights(d)
-        if not unet:
-            continue
-        python = resolve_runtime_python()
-        if not python:
-            log.info("[lipsync] MuseTalk found at %s but runtime interpreter missing", d)
-            continue
-        return {
-            "engine": LIPSYNC_ENGINE,
-            "repo_dir": str(d),
-            "python": python,
-            "version": version,
-            "unet_model_path": unet,
-            "unet_config": config,
-        }
-    return None
+    info = probe_musetalk()
+    if not info["installed"]:
+        return None
+    return {
+        "engine": LIPSYNC_ENGINE,
+        "repo_dir": info["repo_dir"],
+        "python": info["runtime_python"],
+        "version": info["version"],
+        "unet_model_path": info["unet_model_path"],
+        "unet_config": info["unet_config"],
+    }
 
 
 def musetalk_install_guide() -> dict:
@@ -154,15 +207,18 @@ def musetalk_install_guide() -> dict:
 
 def lipsync_status_payload() -> dict:
     """Response body for GET /api/lip_sync/status."""
-    setup = find_musetalk_setup()
-    if not setup:
+    info = probe_musetalk()
+    if not info["installed"]:
         return {"installed": False, "engine": LIPSYNC_ENGINE,
-                "guide": musetalk_install_guide()}
+                "guide": musetalk_install_guide(), "probe": info}
     return {
         "installed": True,
         "engine": LIPSYNC_ENGINE,
-        "repo_dir": setup["repo_dir"],
-        "version": setup["version"],
+        "repo_dir": info["repo_dir"],
+        "version": info["version"],
+        "runtime_python": info["runtime_python"],
+        "ffmpeg_bin": info["ffmpeg_bin"],
+        "problems": info["problems"],
     }
 
 

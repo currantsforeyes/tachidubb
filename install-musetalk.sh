@@ -33,4 +33,7 @@ $MIM install "mmpose==1.1.0"
 echo "Downloading MuseTalk weights (a few GB)..."
 ( cd MuseTalk && bash download_weights.sh )
 
+echo "Running MuseTalk diagnostic..."
+[ -x venv/bin/python ] && venv/bin/python tools/diagnose_musetalk.py || true
+
 echo "MuseTalk is ready. Restart TachiDUBB Studio to enable lip-sync."

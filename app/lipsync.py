@@ -8,7 +8,6 @@ command builders, then re-muxes the full-quality dubbed audio back on.
 """
 import json
 import logging
-import os
 import subprocess as _sp
 import time
 
@@ -22,6 +21,7 @@ from pipeline.lipsync import (
     find_musetalk_setup,
     musetalk_install_guide,
     remux_cmd,
+    resolve_ffmpeg_bin,
     worker_cmd,
 )
 
@@ -64,7 +64,7 @@ def run_lipsync(job_id: str) -> dict:
     job_json_path = work / "_lipsync_job.json"
     job_spec = build_worker_job(
         setup, str(src_video), str(dub_wav), str(raw_out),
-        os.environ.get("TACHIDUBB_FFMPEG_BIN", ""),
+        resolve_ffmpeg_bin(),
     )
     try:
         job_json_path.write_text(

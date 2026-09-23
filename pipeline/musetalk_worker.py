@@ -4,7 +4,7 @@ Runs inside the isolated ``musetalk-runtime`` interpreter (created by
 ``install-musetalk.bat`` / ``.sh``), which carries MuseTalk's OpenMMLab
 dependencies. The main TachiDUBB server never imports MuseTalk directly.
 
-Usage (from server.py):
+Usage (from app/lipsync.py):
     <musetalk-runtime>/python -u pipeline/musetalk_worker.py <job.json>
 
 Where job.json is the dict produced by ``pipeline.lipsync.build_worker_job``::
@@ -18,11 +18,13 @@ Where job.json is the dict produced by ``pipeline.lipsync.build_worker_job``::
 
 Emits one JSON line per event on stdout, e.g.::
 
-    {"event": "launch", "cmd": [...]}
+    {"event": "preflight", "ok": true}
+    {"event": "launch", "version": "v15", "repo": "..."}
     {"event": "done", "output": "...", "seconds": 93.2}
 
-The worker writes MuseTalk's required YAML config into the checkout, invokes
-its ``scripts.inference`` module, then copies the produced mp4 to output_path.
+The worker validates its runtime deps, writes MuseTalk's required YAML config
+into the checkout, invokes its ``scripts.inference`` module, then copies the
+produced mp4 to output_path.
 """
 import json
 import shutil
@@ -31,6 +33,10 @@ import sys
 import time
 import traceback
 from pathlib import Path
+
+# Deps that must be importable in the isolated runtime. Checked up-front so a
+# broken/incomplete install fails with a clear message instead of mid-run.
+_REQUIRED_MODULES = ("torch", "mmcv", "mmpose")
 
 
 def event(**payload) -> None:
@@ -52,13 +58,50 @@ def newest_mp4(root: Path):
     return max(files, key=lambda p: p.stat().st_mtime) if files else None
 
 
+def resolve_ffmpeg_bin(job: dict) -> str:
+    """Directory containing ffmpeg for MuseTalk's --ffmpeg_path.
+
+    Prefers the value the server resolved (which honours TACHIDUBB_FFMPEG_BIN),
+    then falls back to `ffmpeg` on this runtime's PATH.
+    """
+    bin_dir = (job.get("ffmpeg_bin") or "").strip()
+    if bin_dir and Path(bin_dir).is_dir():
+        return bin_dir
+    exe = shutil.which("ffmpeg")
+    return str(Path(exe).parent) if exe else ""
+
+
+def preflight() -> None:
+    """Verify the runtime has its core deps; fatal with a clear message if not."""
+    missing = []
+    for mod in _REQUIRED_MODULES:
+        try:
+            __import__(mod)
+        except Exception as exc:  # noqa: BLE001
+            missing.append(f"{mod} ({type(exc).__name__})")
+    if missing:
+        event(event="fatal",
+              error="MuseTalk runtime is missing dependencies: "
+                    + ", ".join(missing)
+                    + ". Re-run install-musetalk and try again.")
+        sys.exit(1)
+    event(event="preflight", ok=True)
+
+
 def main(job_path: str) -> None:
     job = json.loads(Path(job_path).read_text(encoding="utf-8"))
     repo = Path(job["repo_dir"])
     out = Path(job["output_path"])
     out.parent.mkdir(parents=True, exist_ok=True)
 
-    # Fresh per-run result dir so "newest mp4" can't pick up a stale output.
+    if not (repo / "scripts" / "inference.py").exists():
+        event(event="fatal",
+              error=f"MuseTalk checkout looks incomplete: {repo}/scripts/inference.py missing")
+        sys.exit(1)
+
+    preflight()
+
+    # Fresh per-run result dir so output discovery can't pick up a stale file.
     result_dir = out.parent / f"_musetalk_result_{int(time.time())}"
     result_dir.mkdir(parents=True, exist_ok=True)
 
@@ -74,10 +117,12 @@ def main(job_path: str) -> None:
         "--unet_config", job["unet_config"],
         "--version", job["version"],
     ]
-    if job.get("ffmpeg_bin"):
-        cmd += ["--ffmpeg_path", job["ffmpeg_bin"]]
+    ffmpeg_bin = resolve_ffmpeg_bin(job)
+    if ffmpeg_bin:
+        cmd += ["--ffmpeg_path", ffmpeg_bin]
 
-    event(event="launch", version=job["version"], repo=job["repo_dir"])
+    event(event="launch", version=job["version"], repo=job["repo_dir"],
+          ffmpeg_bin=ffmpeg_bin)
     started = time.time()
     try:
         proc = subprocess.run(
@@ -93,8 +138,11 @@ def main(job_path: str) -> None:
               stderr=(proc.stderr or "")[-1500:])
         sys.exit(1)
 
-    produced = newest_mp4(result_dir)
-    if not produced:
+    # MuseTalk writes results/<name>/<version>.mp4; fall back to newest mp4.
+    produced = result_dir / f"{job['version']}.mp4"
+    if not produced.exists():
+        produced = newest_mp4(result_dir)
+    if produced is None or not Path(produced).exists():
         event(event="fatal", error="MuseTalk reported success but produced no mp4",
               stdout=(proc.stdout or "")[-800:])
         sys.exit(1)
