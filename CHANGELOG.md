@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the subtitles. Applied via a new `segment["tts_text"]` field that every TTS
   engine prefers; `translated_text` is untouched.
 - `translategemma:27b` added to the translation model catalog.
+- VoxCPM's persistent TTS worker is recycled after
+  `TACHIDUBB_TTS_RECYCLE_SEGMENTS` (default 400, `0` disables) segments to
+  bound memory growth on long runs.
 - MuseTalk now runs **OpenMMLab-free**: the worker patches
   `musetalk/utils/preprocessing.py` (backing up the original) to use MuseTalk's
   vendored face detector instead of DWPose, and the installer uses

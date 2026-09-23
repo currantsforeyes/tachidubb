@@ -177,6 +177,7 @@ class VoxCPMSynthesizer(BaseTTSEngine):
         self._worker_proc = None
         self._worker_stderr_fh = None
         self._worker_stderr_path = None
+        self._segments_since_recycle = 0
 
     def load(self):
         if self._model is not None:
@@ -687,6 +688,8 @@ class VoxCPMSynthesizer(BaseTTSEngine):
             else:
                 seg["audio_path"] = None
 
+        self._maybe_recycle_worker(total)
+
         if self._sample_rate is None:
             self._sample_rate = 48000
 
@@ -694,6 +697,43 @@ class VoxCPMSynthesizer(BaseTTSEngine):
 
 
 # ═══════════════════════════════════════════════════════════════════════
+    def _maybe_recycle_worker(self, processed: int) -> None:
+        """Restart the daemon worker after N segments to bound memory use.
+
+        Long jobs and the known Qwen/VoxCPM memory growth make a periodic
+        fresh process safer than one worker living for the whole session.
+        Set TACHIDUBB_TTS_RECYCLE_SEGMENTS=0 to disable.
+        """
+        threshold = self._recycle_threshold()
+        if threshold <= 0 or self._worker_proc is None:
+            return
+        self._segments_since_recycle += processed
+        if self._segments_since_recycle < threshold:
+            return
+        log.info(
+            f"Recycling TTS worker after {self._segments_since_recycle} segments")
+        self._segments_since_recycle = 0
+        try:
+            if self._worker_proc.poll() is None:
+                self._worker_proc.kill()
+        except Exception:
+            pass
+        try:
+            if self._worker_stderr_fh is not None:
+                self._worker_stderr_fh.close()
+        except Exception:
+            pass
+        self._worker_proc = None
+        self._worker_stderr_fh = None
+
+    @staticmethod
+    def _recycle_threshold() -> int:
+        try:
+            return int(os.environ.get("TACHIDUBB_TTS_RECYCLE_SEGMENTS", "400"))
+        except ValueError:
+            return 400
+
+
 #  CosyVoice 2 — placeholder for future integration
 # ═══════════════════════════════════════════════════════════════════════
 # CosyVoice 2 from FunAudioLLM offers native cross-lingual zero-shot
