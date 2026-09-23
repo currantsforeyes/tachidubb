@@ -26,6 +26,15 @@ def make_runtime(root):
     return py
 
 
+def add_all_weights(repo, version="v15"):
+    """Create (empty) files for every required weight, so probe is clean."""
+    for rel in lipsync.required_weight_files(version):
+        p = repo / "models" / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b"")
+    return repo
+
+
 def set_env(monkeypatch, repo=None, python=None):
     if repo is not None:
         monkeypatch.setenv("TACHIDUBB_MUSETALK_DIR", str(repo))
@@ -35,6 +44,10 @@ def set_env(monkeypatch, repo=None, python=None):
         monkeypatch.setenv("TACHIDUBB_MUSETALK_PYTHON", str(python))
     else:
         monkeypatch.delenv("TACHIDUBB_MUSETALK_PYTHON", raising=False)
+    # Isolate detection to exactly this dir, so a real MuseTalk install on the
+    # developer's machine can't leak into the test.
+    dirs = [Path(repo)] if repo is not None else []
+    monkeypatch.setattr(lipsync, "candidate_repo_dirs", lambda: dirs)
 
 
 # ── candidate dirs / runtime resolution ──────────────────────────────────
@@ -172,6 +185,7 @@ def test_resolve_ffmpeg_bin_missing(monkeypatch):
 # ── probe_musetalk ───────────────────────────────────────────────────────
 def test_probe_installed(monkeypatch, tmp_path):
     repo = make_repo(tmp_path, "v15")
+    add_all_weights(repo, "v15")
     set_env(monkeypatch, repo=repo, python=make_runtime(tmp_path))
     monkeypatch.setattr(lipsync, "resolve_ffmpeg_bin", lambda: "/ffmpeg/bin")
 
@@ -181,8 +195,52 @@ def test_probe_installed(monkeypatch, tmp_path):
     assert info["version"] == "v15"
     assert info["runtime_python"] == str(make_runtime(tmp_path))
     assert info["ffmpeg_bin"] == "/ffmpeg/bin"
+    assert info["missing_weights"] == []
     assert any(c["has_inference"] for c in info["candidates"])
     assert info["problems"] == []
+
+
+def test_required_weight_files_are_version_aware():
+    v15 = lipsync.required_weight_files("v15")
+    assert "sd-vae/config.json" in v15          # aux
+    assert "musetalkV15/unet.pth" in v15        # v1.5
+    assert "musetalk/pytorch_model.bin" not in v15
+
+    v1 = lipsync.required_weight_files("v1")
+    assert "musetalk/pytorch_model.bin" in v1
+    assert "musetalkV15/unet.pth" not in v1
+
+
+def test_missing_weight_files_reports_absent(tmp_path):
+    repo = make_repo(tmp_path, "v15")  # version weights only, no aux
+    missing = lipsync.missing_weight_files(repo, "v15")
+
+    assert "sd-vae/config.json" in missing
+    assert "whisper/config.json" in missing
+    assert "musetalkV15/unet.pth" not in missing
+
+
+def test_probe_flags_missing_weights(monkeypatch, tmp_path):
+    repo = make_repo(tmp_path, "v15")
+    set_env(monkeypatch, repo=repo, python=make_runtime(tmp_path))
+
+    info = lipsync.probe_musetalk()
+
+    assert info["missing_weights"]
+    assert any("missing" in p for p in info["problems"])
+
+
+def test_worker_write_config_uses_safe_yaml(tmp_path):
+    from pipeline.musetalk_worker import write_config
+
+    cfg = tmp_path / "cfg.yaml"
+    write_config(cfg, r"D:\a\b.mp4", r"D:\c\d.wav")
+    text = cfg.read_text(encoding="utf-8")
+
+    # single-quoted + forward slashes: double-quoted `\M` is an invalid YAML escape
+    assert "video_path: 'D:/a/b.mp4'" in text
+    assert "audio_path: 'D:/c/d.wav'" in text
+    assert "\\" not in text
 
 
 def test_probe_not_installed_lists_problems(monkeypatch, tmp_path):

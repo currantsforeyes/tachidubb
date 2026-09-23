@@ -34,6 +34,8 @@ _DEP_SCRIPT = (
     "try:\n"
     "    import torch\n"
     "    out['cuda'] = bool(torch.cuda.is_available())\n"
+    "    if torch.cuda.is_available():\n"
+    "        out['capability'] = list(torch.cuda.get_device_capability())\n"
     "    out['torch_cuda'] = getattr(torch.version, 'cuda', None)\n"
     "except Exception:\n"
     "    out['cuda'] = False\n"
@@ -98,11 +100,26 @@ def main() -> int:
                 _line(not val.startswith("ERROR"), mod, val)
             _line(bool(deps.get("cuda")), "CUDA available",
                   f"torch cuda={deps.get('torch_cuda')}")
+            cap = deps.get("capability")
+            torch_cuda = deps.get("torch_cuda")
+            if cap and tuple(cap) >= (12, 0) and torch_cuda:
+                try:
+                    if float(torch_cuda) < 12.8:
+                        print(f"  [!! ] {cap} GPU with a CUDA <12.8 torch build — no native "
+                              "kernels, inference falls back to a very slow path. "
+                              "See the README (RTX 50-series).")
+                except ValueError:
+                    pass
 
     print("\nCandidate locations")
     for c in info["candidates"]:
         state = "checkout" if c["has_inference"] else ("dir" if c["exists"] else "absent")
         _line(c["has_inference"], c["dir"], state)
+
+    if info.get("missing_weights"):
+        print("\nMissing weights (run tools/ensure_musetalk_weights.py)")
+        for w in info["missing_weights"]:
+            print(f"  !! {w}")
 
     if info["problems"]:
         print("\nProblems")

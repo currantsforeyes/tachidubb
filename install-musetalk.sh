@@ -45,6 +45,9 @@ $MIM install "mmpose==1.1.0"
 echo "Downloading MuseTalk weights (a few GB)..."
 ( cd MuseTalk && bash download_weights.sh )
 
+echo "Verifying weights (fills in any the downloader skipped)..."
+$PY tools/ensure_musetalk_weights.py || true
+
 echo "Running MuseTalk diagnostic..."
 [ -x venv/bin/python ] && venv/bin/python tools/diagnose_musetalk.py || true
 

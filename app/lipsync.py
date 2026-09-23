@@ -20,6 +20,7 @@ from pipeline.lipsync import (
     extract_audio_cmd,
     find_musetalk_setup,
     musetalk_install_guide,
+    probe_musetalk,
     remux_cmd,
     resolve_ffmpeg_bin,
     worker_cmd,
@@ -46,6 +47,15 @@ def run_lipsync(job_id: str) -> dict:
     setup = find_musetalk_setup()
     if not setup:
         return {"error": "musetalk_not_installed", "guide": musetalk_install_guide()}
+
+    info = probe_musetalk()
+    if info["missing_weights"]:
+        return {
+            "error": "musetalk_weights_incomplete",
+            "message": "MuseTalk is installed but some model weight files are missing. "
+                       "Run tools/ensure_musetalk_weights.py (or MuseTalk's download_weights).",
+            "missing": info["missing_weights"],
+        }
 
     work = OUTPUT_DIR / job_id
     src_video = work / "dubbed_video.mp4"

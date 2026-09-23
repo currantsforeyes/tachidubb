@@ -56,6 +56,10 @@ call download_weights.bat
 popd
 
 echo.
+echo Verifying weights (fills in any the downloader skipped)...
+%PY% tools\ensure_musetalk_weights.py
+
+echo.
 echo Running MuseTalk diagnostic...
 if exist venv\Scripts\python.exe venv\Scripts\python.exe tools\diagnose_musetalk.py
 

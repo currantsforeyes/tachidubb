@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `install-musetalk`: build `chumpy` (a transitive dependency) with
   `--no-build-isolation`. Its `setup.py` imports `pip`, which isn't present in
   pip's isolated build environment, so the dependency install aborted.
+- Lip-sync worker: quote Windows paths in MuseTalk's generated YAML config
+  (single quotes + forward slashes — double-quoted `\M` is an invalid YAML
+  escape) and force UTF-8 I/O for the child process (MuseTalk prints CJK text
+  that aborted inference under the default cp1252 codec).
+- MuseTalk weights: verify the required files and fetch any that are missing
+  (`tools/ensure_musetalk_weights.py`); `tools/diagnose_musetalk.py` and
+  `/api/lip_sync/status` now report incomplete weights. This works around
+  MuseTalk's `download_weights` using `--include "a" "b"`, which only downloads
+  the second+ patterns and silently skipped `sd-vae/config.json`,
+  `whisper/config.json` and `face-parse-bisent/79999_iter.pth`.
 
 ## [0.2.0] - 2026-09-23
 

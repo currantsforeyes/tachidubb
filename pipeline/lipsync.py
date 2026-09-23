@@ -102,6 +102,40 @@ def _find_weights(repo_dir: Path) -> tuple:
     return None, None, None
 
 
+# Weight files MuseTalk loads at inference time, relative to <repo>/models.
+# MuseTalk's download_weights.bat uses `--include "a" "b"` (two patterns), and
+# only the second+ patterns actually download — which silently drops the first
+# pattern of each command (e.g. sd-vae/config.json). We therefore verify them
+# ourselves so a broken download is reported up-front.
+_AUX_WEIGHTS = (
+    ("sd-vae", "config.json"),
+    ("sd-vae", "diffusion_pytorch_model.bin"),
+    ("whisper", "config.json"),
+    ("whisper", "preprocessor_config.json"),
+    ("whisper", "pytorch_model.bin"),
+    ("dwpose", "dw-ll_ucoco_384.pth"),
+    ("face-parse-bisent", "79999_iter.pth"),
+    ("face-parse-bisent", "resnet18-5c106cde.pth"),
+    ("syncnet", "latentsync_syncnet.pt"),
+)
+_VERSION_WEIGHTS = {
+    "v15": (("musetalkV15", "unet.pth"), ("musetalkV15", "musetalk.json")),
+    "v1": (("musetalk", "pytorch_model.bin"), ("musetalk", "musetalk.json")),
+}
+
+
+def required_weight_files(version: Optional[str]) -> list:
+    """Relative weight files (``dir/file``) required for a MuseTalk version."""
+    pairs = list(_AUX_WEIGHTS) + list(_VERSION_WEIGHTS.get(version or "", ()))
+    return [f"{d}/{f}" for d, f in pairs]
+
+
+def missing_weight_files(repo_dir, version: Optional[str]) -> list:
+    """Relative paths of required weights that are absent under <repo>/models."""
+    models = Path(repo_dir) / "models"
+    return [rel for rel in required_weight_files(version) if not (models / rel).exists()]
+
+
 def probe_musetalk() -> dict:
     """Detailed MuseTalk install diagnosis. Never raises.
 
@@ -126,12 +160,19 @@ def probe_musetalk() -> dict:
 
     python = resolve_runtime_python()
     ffmpeg_bin = resolve_ffmpeg_bin()
+    missing_weights = missing_weight_files(repo_dir, version) if (repo_dir and version) else []
 
     problems = []
     if repo_dir is None:
         problems.append("MuseTalk checkout not found (need scripts/inference.py)")
     elif not unet:
         problems.append("Model weights not found under models/ (run download_weights)")
+    if missing_weights:
+        preview = ", ".join(missing_weights[:4]) + ("..." if len(missing_weights) > 4 else "")
+        problems.append(
+            f"{len(missing_weights)} model weight file(s) missing — run download_weights "
+            f"or tools/ensure_musetalk_weights.py: {preview}"
+        )
     if python is None:
         problems.append("musetalk-runtime interpreter not found (run install-musetalk)")
     if not ffmpeg_bin:
@@ -146,6 +187,7 @@ def probe_musetalk() -> dict:
         "unet_config": config,
         "runtime_python": python,
         "ffmpeg_bin": ffmpeg_bin,
+        "missing_weights": missing_weights,
         "candidates": candidates,
         "problems": problems,
     }

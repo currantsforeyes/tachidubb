@@ -27,6 +27,7 @@ into the checkout, invokes its ``scripts.inference`` module, then copies the
 produced mp4 to output_path.
 """
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -44,11 +45,18 @@ def event(**payload) -> None:
 
 
 def write_config(path: Path, video: str, audio: str) -> None:
-    """Write the minimal MuseTalk inference config (its test.yaml format)."""
+    """Write the minimal MuseTalk inference config (its test.yaml format).
+
+    Paths are single-quoted with forward slashes: YAML double-quoted scalars
+    interpret backslashes as escapes, so a Windows path like ``D:\\MuseTalk``
+    would fail to parse (``\\M`` is an unknown escape).
+    """
+    video = str(video).replace("\\", "/")
+    audio = str(audio).replace("\\", "/")
     Path(path).write_text(
         "task_0:\n"
-        f'  video_path: "{video}"\n'
-        f'  audio_path: "{audio}"\n',
+        f"  video_path: '{video}'\n"
+        f"  audio_path: '{audio}'\n",
         encoding="utf-8",
     )
 
@@ -124,9 +132,16 @@ def main(job_path: str) -> None:
     event(event="launch", version=job["version"], repo=job["repo_dir"],
           ffmpeg_bin=ffmpeg_bin)
     started = time.time()
+    # Force UTF-8 I/O in the child: MuseTalk prints CJK/log text that the
+    # default Windows console codec (cp1252) cannot encode, which otherwise
+    # aborts inference mid-run.
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
     try:
         proc = subprocess.run(
-            cmd, cwd=str(repo), capture_output=True, text=True, timeout=3600,
+            cmd, cwd=str(repo), capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=3600, env=env,
         )
     except subprocess.TimeoutExpired:
         event(event="fatal", error="MuseTalk timed out after 60 minutes")

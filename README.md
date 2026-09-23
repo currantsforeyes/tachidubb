@@ -429,6 +429,18 @@ TACHIDUBB_FFMPEG_BIN=C:\path\to\ffmpeg\bin
 </details>
 
 <details>
+<summary><b>Lip-sync (MuseTalk) is extremely slow on an RTX 50-series GPU</b></summary>
+
+MuseTalk pins an older `torch 2.0.1+cu118`, which has no native kernels for
+Blackwell (sm_120) GPUs, so inference falls back to a very slow path (the
+`diagnose_musetalk.py` output will say so). Options: run lip-sync on an RTX
+30/40-series card, or accept the slow pass. If you upgrade the runtime's torch
+to a cu12.8+ build, note that OpenMMLab's prebuilt `mmcv`/`mmpose` wheels may
+no longer match and could need reinstalling.
+
+</details>
+
+<details>
 <summary><b>Linux ALSA / pulse errors during TTS</b></summary>
 
 We don't play audio — these are warnings from a transitive dep. Ignore unless they actually break the run. `export ALSA_CARD=-1` silences them.
