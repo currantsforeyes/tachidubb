@@ -42,6 +42,9 @@ bin/yt-dlp*
 .ruff_cache/
 .pytest_cache/
 
+# Frontend build deps (the built bundle in static/dist/ IS committed)
+node_modules/
+
 # Optional MuseTalk lip-sync backend (isolated runtime + checkout, ~GBs)
 musetalk-runtime/
 MuseTalk/

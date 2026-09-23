@@ -74,6 +74,11 @@ chmod +x install.sh
 
 First dubbing run downloads the VoxCPM2 model (~5 GB) — one time.
 
+The web UI ships **pre-bundled** (`static/dist/app.js`) — React, ReactDOM and
+three.js are built in, so there is no CDN dependency and no in-browser Babel.
+Contributors changing the UI rebuild it with `npm --prefix frontend run build`
+(see [CONTRIBUTING.md](CONTRIBUTING.md)).
+
 ---
 
 ## 🤖 Agent control (MCP + CLI)

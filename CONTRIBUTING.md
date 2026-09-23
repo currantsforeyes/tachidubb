@@ -74,6 +74,20 @@ For new pure functions, add a small `tests/test_<module>.py`. GPU/ffmpeg
 integration paths are still validated by running the app — for pipeline
 changes, attach a short clip or screenshot to the PR.
 
+## Frontend
+
+The UI is a single-page React app. Source lives in `frontend/src/app.jsx`;
+the bundle at `static/dist/app.js` is committed so end users need no Node
+toolchain. After editing the UI:
+
+```bash
+npm --prefix frontend install      # once
+npm --prefix frontend run build    # writes static/dist/app.js
+```
+
+The bundle includes React, ReactDOM and three.js — there are no CDN scripts
+and no in-browser Babel, so the app runs fully offline.
+
 ## Commit style
 
 - Imperative subject ("fix QA retry seed mutation", not "fixed" or "fixing")

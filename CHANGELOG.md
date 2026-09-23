@@ -83,6 +83,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (falls back to `py -3.10` / `python3.10` when uv isn't present)
 - `install-qwen.bat` uses the same uv-based provisioning for Python 3.12, so
   neither optional backend (MuseTalk or Qwen) requires a system Python
+- The UI now ships as a local esbuild bundle (`frontend/src/app.jsx` →
+  `static/dist/app.js`): React, ReactDOM and three.js are bundled and served
+  from `/static`, so the page loads with **no CDN scripts and no in-browser
+  Babel** (previously it fetched the React *development* build + Babel +
+  three.js from unpkg on every load)
 - CI `test` job, plus explicit `ruff` + `pytest` configuration in `pyproject.toml`
 
 ### Fixed

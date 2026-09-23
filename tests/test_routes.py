@@ -49,3 +49,16 @@ def test_missing_job_is_404():
 
 def test_index_is_served():
     assert client.get("/").status_code == 200
+
+
+def test_index_references_local_bundle():
+    html = client.get("/").text
+    assert "/static/dist/app.js" in html
+    assert "unpkg.com" not in html
+    assert "text/babel" not in html
+
+
+def test_static_bundle_is_served():
+    r = client.get("/static/dist/app.js")
+    assert r.status_code == 200
+    assert len(r.content) > 1000

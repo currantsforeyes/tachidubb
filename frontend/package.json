@@ -1,0 +1,19 @@
+{
+  "name": "tachidubb-frontend",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Build config for the TachiDUBB Studio single-page UI. Bundles React, ReactDOM and three.js from node_modules so the app runs fully offline (no CDN, no in-browser Babel).",
+  "scripts": {
+    "build": "esbuild src/app.jsx --bundle --minify --jsx=transform --target=es2019 --legal-comments=none --outfile=../static/dist/app.js",
+    "build:dev": "esbuild src/app.jsx --bundle --jsx=transform --sourcemap --outfile=../static/dist/app.js",
+    "watch": "esbuild src/app.jsx --bundle --jsx=transform --sourcemap --outfile=../static/dist/app.js --watch"
+  },
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "three": "0.160.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

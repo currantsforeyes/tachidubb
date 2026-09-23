@@ -307,6 +307,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="TachiDUBB Studio", version="2.2.0", lifespan=lifespan)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 app.mount("/outputs", StaticFiles(directory=str(OUTPUT_DIR)), name="outputs")
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.include_router(storage_router)
 app.include_router(system_router)
 app.include_router(voices_router)
