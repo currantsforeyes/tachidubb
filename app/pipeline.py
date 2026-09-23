@@ -404,6 +404,9 @@ async def run_pipeline(
             context_hint=context_hint,
             progress_callback=_translate_progress,
             staged=(cfg.translation_mode == "staged"),
+            backend=cfg.translation_backend,
+            base_url=cfg.translation_base_url,
+            api_key=cfg.translation_api_key,
         )
 
         # Sanity check: if a significant fraction of segments have
@@ -438,10 +441,11 @@ async def run_pipeline(
         # to system RAM → slow inference. keep_alive=0 tells Ollama to
         # drop the model immediately after the next request; we pair it
         # with a cheap 1-token request to actually trigger the unload.
-        try:
-            await unload_ollama_model(model)
-        except Exception as e:
-            log.warning(f"Failed to unload Ollama model (non-fatal): {e}")
+        if cfg.translation_backend == "ollama":
+            try:
+                await unload_ollama_model(model)
+            except Exception as e:
+                log.warning(f"Failed to unload Ollama model (non-fatal): {e}")
 
         transcript_preview = [
             {
@@ -651,12 +655,16 @@ async def _run_translate_stage(
         segments, effective_src, target_lang, model,
         context_hint=context_hint,
         staged=(cfg.translation_mode == "staged"),
+            backend=cfg.translation_backend,
+            base_url=cfg.translation_base_url,
+            api_key=cfg.translation_api_key,
     )
     # See comment on unload in main pipeline — free VRAM for VoxCPM
-    try:
-        await unload_ollama_model(model)
-    except Exception as e:
-        log.warning(f"Failed to unload Ollama model (non-fatal): {e}")
+    if cfg.translation_backend == "ollama":
+        try:
+            await unload_ollama_model(model)
+        except Exception as e:
+            log.warning(f"Failed to unload Ollama model (non-fatal): {e}")
     return translated
 
 
@@ -958,6 +966,9 @@ async def _continue_from_checkpoint(
                 cp["segments"], effective_src, target_lang, model,
                 context_hint=context_hint,
                 staged=(cfg.translation_mode == "staged"),
+            backend=cfg.translation_backend,
+            base_url=cfg.translation_base_url,
+            api_key=cfg.translation_api_key,
             )
             # Save translation_done checkpoint
             save_checkpoint(job_id, work, stage="translation_done", data={
@@ -1005,6 +1016,9 @@ async def _retranslate_stage(job_id: str, cp: dict, model: str,
             cp["segments"], effective_src, target_lang, model,
             context_hint=context_hint,
             staged=(cfg.translation_mode == "staged"),
+            backend=cfg.translation_backend,
+            base_url=cfg.translation_base_url,
+            api_key=cfg.translation_api_key,
         )
         save_checkpoint(job_id, work, stage="translation_done", data={
             **cp,

@@ -279,6 +279,11 @@ VOXCPM_STEPS=10                    # 5-20, lower = faster
 
 # Translation backend
 OLLAMA_URL=http://localhost:11434
+# ...or any OpenAI-compatible server (LM Studio, llama.cpp, vLLM, OpenAI):
+# TACHIDUBB_TRANSLATION_BACKEND=openai
+# TRANSLATION_BASE_URL=http://localhost:1234/v1
+# TRANSLATION_API_KEY=              # optional bearer token
+# TACHIDUBB_TRANSLATION_MODE=staged # optional: clean -> translate -> narrate
 
 # UI behavior
 TACHIDUBB_OPEN_BROWSER=1           # 0 to disable auto-open

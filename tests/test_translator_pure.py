@@ -11,6 +11,9 @@ from pipeline.translator import (
     _build_clean_prompt,
     _build_narration_prompt,
     _staged_batch,
+    _default_backend,
+    _call_openai,
+    _call_model,
 )
 
 
@@ -167,3 +170,83 @@ def test_staged_batch_narration_step_is_optional(monkeypatch):
 
     # Falls back to the translation when only the narration step fails.
     assert asyncio.run(_staged_batch("u", "m", "English", "Russian", "[1] hi", "")) == "translated"
+
+
+# ── OpenAI-compatible backend ────────────────────────────────────────────
+def test_default_backend_env(monkeypatch):
+    monkeypatch.delenv("TACHIDUBB_TRANSLATION_BACKEND", raising=False)
+    assert _default_backend() == "ollama"
+    monkeypatch.setenv("TACHIDUBB_TRANSLATION_BACKEND", "OpenAI")
+    assert _default_backend() == "openai"
+
+
+class _FakeResp:
+    def __init__(self, payload):
+        self._payload = payload
+
+    def raise_for_status(self):
+        pass
+
+    def json(self):
+        return self._payload
+
+
+class _FakeClient:
+    last = None
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def post(self, url, headers=None, json=None):
+        _FakeClient.last = (url, headers, json)
+        return _FakeResp({"choices": [{"message": {"content": "Bonjour"}}]})
+
+
+def test_call_openai_builds_request(monkeypatch):
+    import pipeline.translator as T
+    monkeypatch.setattr(T.httpx, "AsyncClient", _FakeClient)
+
+    out = asyncio.run(_call_openai("http://localhost:1234/v1/", "qwen2.5", "hello", api_key="secret"))
+
+    assert out == "Bonjour"
+    url, headers, payload = _FakeClient.last
+    assert url == "http://localhost:1234/v1/chat/completions"
+    assert headers["Authorization"] == "Bearer secret"
+    assert payload["model"] == "qwen2.5"
+    assert payload["messages"][0]["content"] == "hello"
+
+
+def test_call_openai_omits_auth_without_key(monkeypatch):
+    import pipeline.translator as T
+    monkeypatch.setattr(T.httpx, "AsyncClient", _FakeClient)
+
+    asyncio.run(_call_openai("http://localhost:1234/v1", "m", "p"))
+
+    assert "Authorization" not in _FakeClient.last[1]
+
+
+def test_call_model_routes_by_backend(monkeypatch):
+    import pipeline.translator as T
+    routed = []
+
+    async def fake_openai(url, model, prompt, api_key="", timeout=240.0):
+        routed.append("openai")
+        return "O"
+
+    async def fake_ollama(url, model, prompt, timeout=240.0):
+        routed.append("ollama")
+        return "L"
+
+    monkeypatch.setattr(T, "_call_openai", fake_openai)
+    monkeypatch.setattr(T, "_call_ollama", fake_ollama)
+
+    assert asyncio.run(_call_model("openai", "u", "m", "p")) == "O"
+    assert asyncio.run(_call_model("ollama", "u", "m", "p")) == "L"
+    assert asyncio.run(_call_model("", "u", "m", "p")) == "L"  # default
+    assert routed == ["openai", "ollama", "ollama"]

@@ -1204,6 +1204,42 @@ async def _staged_batch(target_url: str, model: str, src: str, tgt: str,
     return translated
 
 
+def _default_backend() -> str:
+    """Translation backend: "ollama" (default) or "openai" (OpenAI-compatible)."""
+    return os.getenv("TACHIDUBB_TRANSLATION_BACKEND", "ollama").strip().lower() or "ollama"
+
+
+async def _call_openai(base_url: str, model: str, prompt: str,
+                       api_key: str = "", timeout: float = 240.0) -> str:
+    """Call an OpenAI-compatible /chat/completions endpoint.
+
+    Works with LM Studio, llama.cpp's server, vLLM, and the OpenAI API — any
+    server exposing the Chat Completions schema.
+    """
+    url = base_url.rstrip("/") + "/chat/completions"
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, read=120.0)) as c:
+        r = await c.post(url, headers=headers, json={
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.2,
+            "stream": False,
+        })
+        r.raise_for_status()
+        data = r.json()
+    return data["choices"][0]["message"]["content"]
+
+
+async def _call_model(backend: str, url: str, model: str, prompt: str,
+                      api_key: str = "", timeout: float = 240.0) -> str:
+    """Dispatch to the configured translation backend."""
+    if (backend or "").strip().lower() == "openai":
+        return await _call_openai(url, model, prompt, api_key=api_key, timeout=timeout)
+    return await _call_ollama(url, model, prompt, timeout=timeout)
+
+
 async def translate_segments(segments: list[dict],
                               source_lang: str,
                               target_lang: str,
@@ -1211,7 +1247,10 @@ async def translate_segments(segments: list[dict],
                               url: str = "",
                               context_hint: str = "",
                               progress_callback=None,
-                              staged=None) -> list[dict]:
+                              staged=None,
+                              backend: str = "",
+                              base_url: str = "",
+                              api_key: str = "") -> list[dict]:
     """Translate all segments via Ollama with dubbing-optimized prompts + retry.
 
     context_hint: optional free-text hint describing the video's domain
@@ -1221,14 +1260,25 @@ async def translate_segments(segments: list[dict],
         called after each batch. Used to surface translation progress to
         the UI so long runs don't look hung.
     """
-    target_url = url or OLLAMA_URL
+    backend = (backend or "").strip().lower() or _default_backend()
+    api_key = api_key or os.getenv("TRANSLATION_API_KEY", "").strip()
+    if backend == "openai":
+        target_url = base_url or url or os.getenv(
+            "TRANSLATION_BASE_URL", "http://localhost:1234/v1")
+    else:
+        target_url = url or OLLAMA_URL
     src = lang_name(source_lang)
     tgt = lang_name(target_lang)
 
     if staged is None:
         staged = os.getenv("TACHIDUBB_TRANSLATION_MODE", "single").strip().lower() == "staged"
+    if staged and backend != "ollama":
+        log.info("[translate] staged mode is Ollama-only; using single-pass for %s", backend)
+        staged = False
     if staged:
         log.info("[translate] staged mode: clean -> translate -> narrate")
+    if backend == "openai":
+        log.info(f"Translation backend: OpenAI-compatible at {target_url}")
 
     # The Qwen3 Ollama packages available at the time of writing open a
     # reasoning channel unconditionally.  On affected Ollama releases the
@@ -1243,9 +1293,12 @@ async def translate_segments(segments: list[dict],
             "Use 'qwen2.5:7b' instead (or another direct-output translation model)."
         )
 
-    # Preflight: fail fast if the model isn't installed (otherwise user
-    # stares at "Translating..." for 4 minutes before a cryptic error).
-    await ensure_model_available(target_url, model)
+    # Preflight + warmup are Ollama-specific; an OpenAI-compatible server
+    # (LM Studio / llama.cpp / vLLM) manages models itself.
+    if backend == "ollama":
+        # Fail fast if the model isn't installed (otherwise the user stares
+        # at "Translating..." for minutes before a cryptic error).
+        await ensure_model_available(target_url, model)
 
     # Warm up Ollama BEFORE starting the real translations. If the model
     # isn't already loaded in VRAM, the first /api/generate call has to
@@ -1254,13 +1307,14 @@ async def translate_segments(segments: list[dict],
     # num_predict=1 takes ~15-30s on cold load but completes BEFORE we
     # start timing batches, so the user's "batch 1/N" starts from a warm
     # model and gets proper ETAs.
-    log.info(f"Warming up Ollama model '{model}'...")
-    t_warm = time.time()
-    warmed = await _warmup_ollama(target_url, model, timeout=120.0)
-    if warmed:
-        log.info(f"Ollama warmed in {time.time() - t_warm:.1f}s")
-    else:
-        log.warning("Ollama warmup did not succeed; first batch may be slow")
+    if backend == "ollama":
+        log.info(f"Warming up Ollama model '{model}'...")
+        t_warm = time.time()
+        warmed = await _warmup_ollama(target_url, model, timeout=120.0)
+        if warmed:
+            log.info(f"Ollama warmed in {time.time() - t_warm:.1f}s")
+        else:
+            log.warning("Ollama warmup did not succeed; first batch may be slow")
 
     batch_size = 5
     translated: list[dict] = []
@@ -1322,7 +1376,7 @@ async def translate_segments(segments: list[dict],
             if raw is not None:
                 break
             try:
-                raw = await _call_ollama(target_url, model, prompt)
+                raw = await _call_model(backend, target_url, model, prompt, api_key=api_key)
                 break
             except Exception as e:
                 # Serialize the exception robustly — some httpx exceptions
@@ -1352,10 +1406,10 @@ async def translate_segments(segments: list[dict],
             # much more robust — smaller context = less likely to timeout)
             for seg in batch:
                 try:
-                    single = await _call_ollama(
+                    single = await _call_model(backend,
                         target_url, model,
                         _build_single_prompt(src, tgt, seg["text"], context_hint),
-                        timeout=60.0,
+                        api_key=api_key, timeout=60.0,
                     )
                     single_text = _clean_response(single).strip()
                     # Take first non-empty line
@@ -1387,10 +1441,10 @@ async def translate_segments(segments: list[dict],
             t = line_map.get(j + 1, "").strip()
             if not t or _looks_untranslated(t, target_lang):
                 try:
-                    single = await _call_ollama(
+                    single = await _call_model(backend,
                         target_url, model,
                         _build_single_prompt(src, tgt, seg["text"], context_hint),
-                        timeout=90.0,
+                        api_key=api_key, timeout=90.0,
                     )
                     single = _clean_response(single)
                     for line in single.split("\n"):

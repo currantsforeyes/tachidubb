@@ -62,7 +62,10 @@ class UserConfig:
     # ── Translation ────────────────────────────────────────────────────
     translation_model: str = "qwen2.5:7b"  # direct-output Ollama model
     ollama_url: str = "http://localhost:11434"
-    translation_mode: str = "single"     # "single" | "staged" (clean->translate->narrate)
+    translation_mode: str = "single"
+    translation_backend: str = "ollama"  # "ollama" | "openai" (LM Studio/llama.cpp/vLLM)
+    translation_base_url: str = "http://localhost:1234/v1"  # OpenAI-compatible base
+    translation_api_key: str = ""     # "single" | "staged" (clean->translate->narrate)
 
     # ── VoxCPM ────────────────────────────────────────────────────────
     voxcpm_model: str = "openbmb/VoxCPM2"
@@ -119,6 +122,9 @@ def _load_config() -> UserConfig:
         "TACHIDUBB_TTS_ENGINE": "tts_engine",
         "OLLAMA_URL": "ollama_url",
         "TACHIDUBB_TRANSLATION_MODE": "translation_mode",
+        "TACHIDUBB_TRANSLATION_BACKEND": "translation_backend",
+        "TRANSLATION_BASE_URL": "translation_base_url",
+        "TRANSLATION_API_KEY": "translation_api_key",
         "WHISPER_MODEL": "whisper_model",
         "TACHIDUBB_OPEN_BROWSER": "open_browser",
         "TACHIDUBB_WARMUP": "warmup_on_start",

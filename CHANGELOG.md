@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `translation_mode` in config): clean raw subtitles, translate, then adapt for
   spoken narration as three separate model passes. Best-effort — any step
   failing falls back to the existing single-pass prompt for that batch.
+- **OpenAI-compatible translation backend** (`TACHIDUBB_TRANSLATION_BACKEND=openai`
+  with `TRANSLATION_BASE_URL` / `TRANSLATION_API_KEY`): use LM Studio, llama.cpp's
+  server, vLLM or the OpenAI API instead of Ollama. Works with any server
+  exposing `/chat/completions`. Ollama stays the default.
 - VoxCPM's persistent TTS worker is recycled after
   `TACHIDUBB_TTS_RECYCLE_SEGMENTS` (default 400, `0` disables) segments to
   bound memory growth on long runs.
