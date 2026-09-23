@@ -1,0 +1,24 @@
+# Normalize line endings: store LF in the repository, regardless of the
+# contributor's OS. Windows launchers stay CRLF so they behave in cmd.exe.
+* text=auto eol=lf
+
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary assets — never convert or diff as text.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.mp4 binary
+*.pdf binary
+*.woff2 binary
+*.ttf binary
+*.pth binary
+*.onnx binary
+
+# Generated UI bundle — collapse in diffs / language stats.
+static/dist/app.js linguist-generated=true
+static/fonts.css linguist-generated=true
