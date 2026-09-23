@@ -71,3 +71,10 @@ def test_self_hosted_fonts_are_served():
     assert css.status_code == 200
     assert "@font-face" in css.text
     assert "fonts.gstatic" not in css.text
+
+
+def test_pronunciation_endpoint():
+    r = client.get("/api/pronunciation")
+    assert r.status_code == 200
+    body = r.json()
+    assert "rules" in body.get("data", {})

@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Pronunciation overrides** (`presets/pronunciation.json` + `/api/pronunciation`):
+  rewrite how a word is *spoken* (e.g. `nginx` → `engine x`) without changing
+  the subtitles. Applied via a new `segment["tts_text"]` field that every TTS
+  engine prefers; `translated_text` is untouched.
+- `translategemma:27b` added to the translation model catalog.
 - MuseTalk now runs **OpenMMLab-free**: the worker patches
   `musetalk/utils/preprocessing.py` (backing up the original) to use MuseTalk's
   vendored face detector instead of DWPose, and the installer uses

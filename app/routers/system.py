@@ -12,8 +12,11 @@ import httpx
 from fastapi import APIRouter, Form
 from fastapi.responses import JSONResponse, StreamingResponse
 
-from app.config import cfg, PREFS_FILE, USER_GLOSSARY_FILE
+from app.config import cfg, PREFS_FILE, PRONUNCIATION_FILE, USER_GLOSSARY_FILE
 from app.glossary import GLOSSARY_EXAMPLE, total_terms, validate_glossary
+from app.pronunciation import clear as clear_pronunciation
+from app.pronunciation import save_rules as save_pronunciation
+from app.pronunciation import validate_rules as validate_pronunciation
 from app.tts import get_tts_engine
 from pipeline.models import MODEL_CATALOG, get_system_status
 from pipeline.synthesizer import VoxCPMSynthesizer
@@ -231,3 +234,57 @@ async def delete_glossary():
         except Exception as e:
             return JSONResponse({"error": str(e)}, 500)
     return {"ok": True, "note": "File didn't exist"}
+
+
+# ── Pronunciation overrides — how TTS says a word (not the subtitle) ──────
+
+
+@router.get("/api/pronunciation")
+async def get_pronunciation():
+    """Return the pronunciation rule set + metadata."""
+    if not PRONUNCIATION_FILE.exists():
+        return {
+            "exists": False,
+            "data": {"rules": []},
+            "hint": "Rules rewrite what TTS speaks without changing subtitles, "
+                    'e.g. {"from": "nginx", "to": "engine x"}.',
+        }
+    try:
+        data = json.loads(PRONUNCIATION_FILE.read_text(encoding="utf-8"))
+        return {"exists": True, "data": data}
+    except Exception as e:
+        return JSONResponse({
+            "exists": True,
+            "error": f"Could not parse pronunciation file: {e}",
+            "raw_text": PRONUNCIATION_FILE.read_text(encoding="utf-8", errors="replace"),
+        }, 500)
+
+
+@router.post("/api/pronunciation")
+async def set_pronunciation(body: str = Form(...)):
+    """Replace the pronunciation rules.
+
+    Accepts ``{ "rules": [ { "from": "...", "to": "..." }, ... ] }``.
+    """
+    try:
+        data = json.loads(body)
+    except Exception as e:
+        return JSONResponse({"error": f"Invalid JSON: {e}"}, 400)
+    error = validate_pronunciation(data)
+    if error:
+        return JSONResponse({"error": error}, 400)
+    try:
+        save_pronunciation(data)
+        n = len(data.get("rules", []))
+        log.info(f"[pronunciation] Saved {n} rule(s)")
+        return {"ok": True, "rules": n, "path": str(PRONUNCIATION_FILE)}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, 500)
+
+
+@router.delete("/api/pronunciation")
+async def delete_pronunciation():
+    """Remove all pronunciation rules."""
+    clear_pronunciation()
+    log.info("[pronunciation] Rules cleared")
+    return {"ok": True}

@@ -36,7 +36,23 @@ from pipeline.transcriber import transcribe
 from pipeline.translator import translate_segments, unload_ollama_model
 from pipeline.vad import apply_vad_filter
 
+from app.pronunciation import apply as apply_pronunciation_rules
+
 log = logging.getLogger("tachidubb.pipeline")
+
+
+def _apply_pronunciation(segments: list) -> list:
+    """Set ``seg['tts_text']`` from the spoken text using the user's overrides.
+
+    Derived from ``translated_text``/``text`` (never from a previous
+    ``tts_text``) so re-runs stay idempotent. Overrides affect speech only —
+    subtitles keep using ``translated_text``.
+    """
+    for s in segments:
+        base = s.get("translated_text") or s.get("text", "")
+        if base:
+            s["tts_text"] = apply_pronunciation_rules(base)
+    return segments
 
 
 async def run_pipeline(
@@ -521,6 +537,8 @@ async def run_pipeline(
                 if base and not base.startswith("("):
                     s["translated_text"] = f"({style}){base}"
 
+        _apply_pronunciation(segments)
+
         def synth_progress(done, total):
             pct = 65 + int((done / max(total, 1)) * 20)
             update(progress=min(pct, 85), step_detail=f"Synthesizing: {done}/{total}")
@@ -782,6 +800,7 @@ async def _run_tts_and_merge_stage(
                step_detail=f"Synthesizing: {done}/{total_inner}")
 
     if total > 0:
+        _apply_pronunciation(synth_input)
         if isinstance(tts, (VoxCPMSynthesizer, QwenTTSEngine)):
             # Determine cross-lingual from state (may be missing from older
             # checkpoints — in that case assume cross-lingual as a safer default

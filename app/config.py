@@ -27,6 +27,9 @@ STATIC_DIR = BASE / "static"
 PRESETS_DIR = BASE / "presets"
 VOICE_PRESETS_DIR = PRESETS_DIR / "voices"
 USER_GLOSSARY_FILE = PRESETS_DIR / "user_glossary.json"
+# Optional pronunciation overrides applied to text spoken by TTS only (never
+# shown in subtitles) — e.g. {"from": "nginx", "to": "engine x"}.
+PRONUNCIATION_FILE = PRESETS_DIR / "pronunciation.json"
 # User preferences — persisted across sessions. Simple JSON blob edited by the
 # UI; not schema-validated server-side (it's just a KV store).
 PREFS_FILE = BASE / "user_prefs.json"

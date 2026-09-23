@@ -74,6 +74,17 @@ warnings.filterwarnings("ignore", message=".*torch\\.nn\\.utils\\.weight_norm.*"
 # the right sample rate.
 # ═══════════════════════════════════════════════════════════════════════
 
+
+def _spoken_text(seg: dict) -> str:
+    """Text an engine should speak.
+
+    Prefers ``tts_text`` (the pronunciation-override form set by the pipeline)
+    over the displayed ``translated_text``/``text``, so overrides affect speech
+    but never subtitles.
+    """
+    return (seg.get("tts_text") or seg.get("translated_text") or seg.get("text", "")).strip()
+
+
 class BaseTTSEngine:
     """Abstract base for all TTS engines used by the dubbing pipeline.
 
@@ -426,7 +437,7 @@ class VoxCPMSynthesizer(BaseTTSEngine):
                 break
 
         for i, seg in enumerate(segments):
-            text = seg.get("translated_text", seg["text"])
+            text = _spoken_text(seg)
             speaker = seg.get("speaker", "SPEAKER_00")
             out_file = os.path.join(output_dir, f"seg_{i:04d}.wav")
             # Try exact match first, then fall back to any available ref
@@ -828,7 +839,7 @@ class QwenTTSEngine(BaseTTSEngine):
             reference = references.get(speaker, fallback)
             specs.append({
                 "idx": i,
-                "text": segment.get("translated_text") or segment["text"],
+                "text": _spoken_text(segment),
                 "reference_audio": reference["audio"],
                 "reference_text": reference.get("text", ""),
                 "output_path": os.path.join(output_dir, f"seg_{i:04d}.wav"),
@@ -963,7 +974,7 @@ class F5TTSEngine(BaseTTSEngine):
 
         total = len(segments)
         for i, seg in enumerate(segments):
-            text = (seg.get("translated_text") or seg.get("text", "")).strip()
+            text = _spoken_text(seg)
             if not text:
                 seg["audio_path"] = None
                 if progress_callback:
@@ -1054,7 +1065,7 @@ class EdgeTTSFallback(BaseTTSEngine):
 
         total = len(segments)
         for i, seg in enumerate(segments):
-            text = seg.get("translated_text", seg["text"])
+            text = _spoken_text(seg)
             if not text.strip():
                 seg["audio_path"] = None
                 continue

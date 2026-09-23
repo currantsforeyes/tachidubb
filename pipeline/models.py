@@ -48,6 +48,13 @@ MODEL_CATALOG = {
             "recommended": True,
         },
         {
+            "id": "translategemma:27b",
+            "name": "TranslateGemma 27B",
+            "size": "17 GB",
+            "vram": "~19 GB",
+            "description": "Translation-specialized model. High quality, but large and slow—only for big-VRAM systems.",
+        },
+        {
             "id": "qwen2.5:14b",
             "name": "Qwen2.5 14B",
             "size": "9.0 GB",
