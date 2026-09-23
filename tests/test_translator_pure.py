@@ -1,11 +1,16 @@
 """Pure helpers in the Ollama translator: response cleaning, script detection,
 numbered-line parsing, and junk stripping."""
+import asyncio
+
 from pipeline.translator import (
     lang_name,
     _clean_response,
     _looks_untranslated,
     _parse_numbered,
     _strip_junk,
+    _build_clean_prompt,
+    _build_narration_prompt,
+    _staged_batch,
 )
 
 
@@ -91,3 +96,74 @@ def test_strip_junk_removes_quotes_and_numbering():
 
 def test_strip_junk_removes_leading_dash():
     assert _strip_junk("- item") == "item"
+
+
+# ── staged translation prompts ───────────────────────────────────────────
+def test_clean_prompt_mentions_editing_and_format():
+    p = _build_clean_prompt("[1] (1.0s) hello world")
+    assert "text editor" in p
+    assert "Merge sentences" in p
+    assert "[1] (1.0s) hello world" in p
+
+
+def test_narration_prompt_names_target_language():
+    p = _build_narration_prompt("Russian", "[1] привет")
+    assert "Russian" in p
+    assert "shorter" in p.lower()
+    assert "[1] привет" in p
+
+
+# ── _staged_batch ────────────────────────────────────────────────────────
+def _fake_ollama(monkeypatch, responses, record):
+    def factory():
+        it = iter(responses)
+
+        async def fake(url, model, prompt, **kwargs):
+            record.append(prompt)
+            return next(it)
+
+        return fake
+    monkeypatch.setattr("pipeline.translator._call_ollama", factory())
+
+
+def test_staged_batch_runs_clean_translate_narrate(monkeypatch):
+    calls = []
+    _fake_ollama(monkeypatch, ["cleaned", "translated", "adapted"], calls)
+
+    out = asyncio.run(_staged_batch("u", "m", "English", "Russian", "[1] hi", ""))
+
+    assert out == "adapted"
+    assert len(calls) == 3
+    assert "text editor" in calls[0]          # clean step
+    assert "Russian" in calls[1]              # translate step
+    assert "Russian" in calls[2]              # narration step
+
+
+def test_staged_batch_returns_none_when_clean_fails(monkeypatch):
+    async def boom(url, model, prompt, **kwargs):
+        raise RuntimeError("ollama down")
+    monkeypatch.setattr("pipeline.translator._call_ollama", boom)
+
+    assert asyncio.run(_staged_batch("u", "m", "English", "Russian", "[1] hi", "")) is None
+
+
+def test_staged_batch_returns_none_on_empty_translation(monkeypatch):
+    calls = []
+    _fake_ollama(monkeypatch, ["cleaned", "   "], calls)
+
+    assert asyncio.run(_staged_batch("u", "m", "English", "Russian", "[1] hi", "")) is None
+
+
+def test_staged_batch_narration_step_is_optional(monkeypatch):
+    calls = []
+
+    async def fake(url, model, prompt, **kwargs):
+        calls.append(prompt)
+        if len(calls) == 3:
+            raise RuntimeError("narration failed")
+        return "cleaned" if len(calls) == 1 else "translated"
+
+    monkeypatch.setattr("pipeline.translator._call_ollama", fake)
+
+    # Falls back to the translation when only the narration step fails.
+    assert asyncio.run(_staged_batch("u", "m", "English", "Russian", "[1] hi", "")) == "translated"

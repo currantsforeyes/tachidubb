@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the subtitles. Applied via a new `segment["tts_text"]` field that every TTS
   engine prefers; `translated_text` is untouched.
 - `translategemma:27b` added to the translation model catalog.
+- Optional **staged translation** (`TACHIDUBB_TRANSLATION_MODE=staged`, or
+  `translation_mode` in config): clean raw subtitles, translate, then adapt for
+  spoken narration as three separate model passes. Best-effort — any step
+  failing falls back to the existing single-pass prompt for that batch.
 - VoxCPM's persistent TTS worker is recycled after
   `TACHIDUBB_TTS_RECYCLE_SEGMENTS` (default 400, `0` disables) segments to
   bound memory growth on long runs.

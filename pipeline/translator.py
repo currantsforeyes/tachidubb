@@ -1133,13 +1133,85 @@ def _strip_junk(s: str) -> str:
     return s.strip()
 
 
+def _build_clean_prompt(numbered: str) -> str:
+    """Step 1 of staged translation: fix raw subtitle text."""
+    return (
+        "You are a text editor working with video subtitles.\n"
+        "Merge sentences broken by line breaks, remove duplicated words or "
+        "fragments, and fix punctuation. Preserve the original wording and "
+        "meaning. Do not summarize, translate, or add commentary.\n"
+        "Keep the exact same numbered line format ([n] (Xs) ...), one entry per "
+        "line, same numbering. Output only the cleaned lines.\n\n"
+        + numbered
+    )
+
+
+def _build_narration_prompt(tgt: str, numbered: str) -> str:
+    """Step 3 of staged translation: make the translation flow when spoken."""
+    return (
+        f"You are editing a {tgt} translation of a spoken video so it sounds "
+        "natural when read aloud.\n"
+        "Rules:\n"
+        "- Do not change the meaning.\n"
+        "- Prefer shorter, flowing spoken sentences.\n"
+        "- Remove awkward literal phrasing; keep product, library and company "
+        "names as-is.\n"
+        "- Do not add commentary or explanations.\n"
+        "Keep the exact same numbered line format, one line per entry. Output "
+        "only the adapted lines.\n\n"
+        + numbered
+    )
+
+
+async def _staged_batch(target_url: str, model: str, src: str, tgt: str,
+                        numbered: str, context_hint: str,
+                        target_lang_code: str = ""):
+    """Clean -> translate -> adapt-for-narration, as three separate calls.
+
+    Best-effort: returns the final numbered text, or None if a required step
+    fails (the caller then falls back to the single-pass prompt). Only the
+    narration step is optional.
+    """
+    try:
+        cleaned = _clean_response(
+            await _call_ollama(target_url, model, _build_clean_prompt(numbered))
+        )
+        if not cleaned.strip():
+            return None
+    except Exception as e:
+        log.warning(f"[staged] clean step failed: {e}")
+        return None
+    try:
+        translated = _clean_response(
+            await _call_ollama(target_url, model,
+                               _build_batch_prompt(src, tgt, cleaned, context_hint,
+                                                   target_lang_code=target_lang_code))
+        )
+        if not translated.strip():
+            return None
+    except Exception as e:
+        log.warning(f"[staged] translate step failed: {e}")
+        return None
+    try:
+        adapted = _clean_response(
+            await _call_ollama(target_url, model,
+                               _build_narration_prompt(tgt, translated))
+        )
+        if adapted.strip():
+            return adapted
+    except Exception as e:
+        log.warning(f"[staged] narration step failed; using translation: {e}")
+    return translated
+
+
 async def translate_segments(segments: list[dict],
                               source_lang: str,
                               target_lang: str,
                               model: str = "gemma4:e4b",
                               url: str = "",
                               context_hint: str = "",
-                              progress_callback=None) -> list[dict]:
+                              progress_callback=None,
+                              staged=None) -> list[dict]:
     """Translate all segments via Ollama with dubbing-optimized prompts + retry.
 
     context_hint: optional free-text hint describing the video's domain
@@ -1152,6 +1224,11 @@ async def translate_segments(segments: list[dict],
     target_url = url or OLLAMA_URL
     src = lang_name(source_lang)
     tgt = lang_name(target_lang)
+
+    if staged is None:
+        staged = os.getenv("TACHIDUBB_TRANSLATION_MODE", "single").strip().lower() == "staged"
+    if staged:
+        log.info("[translate] staged mode: clean -> translate -> narrate")
 
     # The Qwen3 Ollama packages available at the time of writing open a
     # reasoning channel unconditionally.  On affected Ollama releases the
@@ -1236,7 +1313,14 @@ async def translate_segments(segments: list[dict],
         # lower temperature + shorter context often succeeds.
         raw = None
         last_error = None
+        if staged:
+            raw = await _staged_batch(
+                target_url, model, src, tgt, numbered, context_hint,
+                target_lang_code=target_lang,
+            )
         for attempt in range(2):
+            if raw is not None:
+                break
             try:
                 raw = await _call_ollama(target_url, model, prompt)
                 break

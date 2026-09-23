@@ -62,6 +62,7 @@ class UserConfig:
     # ── Translation ────────────────────────────────────────────────────
     translation_model: str = "qwen2.5:7b"  # direct-output Ollama model
     ollama_url: str = "http://localhost:11434"
+    translation_mode: str = "single"     # "single" | "staged" (clean->translate->narrate)
 
     # ── VoxCPM ────────────────────────────────────────────────────────
     voxcpm_model: str = "openbmb/VoxCPM2"
@@ -117,6 +118,7 @@ def _load_config() -> UserConfig:
         "VOXCPM_STEPS": "voxcpm_steps",
         "TACHIDUBB_TTS_ENGINE": "tts_engine",
         "OLLAMA_URL": "ollama_url",
+        "TACHIDUBB_TRANSLATION_MODE": "translation_mode",
         "WHISPER_MODEL": "whisper_model",
         "TACHIDUBB_OPEN_BROWSER": "open_browser",
         "TACHIDUBB_WARMUP": "warmup_on_start",

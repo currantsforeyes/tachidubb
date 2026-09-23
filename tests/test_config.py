@@ -38,6 +38,12 @@ def test_to_dict_contains_defaults():
     d = config.UserConfig().to_dict()
     assert d["voxcpm_cfg"] == 2.0
     assert "whisper_model" in d
+    assert d["translation_mode"] == "single"
+
+
+def test_translation_mode_env_override(monkeypatch):
+    monkeypatch.setenv("TACHIDUBB_TRANSLATION_MODE", "staged")
+    assert config._load_config().translation_mode == "staged"
 
 
 def test_load_config_reads_file(tmp_path, monkeypatch):

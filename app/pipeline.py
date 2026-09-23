@@ -403,6 +403,7 @@ async def run_pipeline(
             segments, effective_src, target_lang, model,
             context_hint=context_hint,
             progress_callback=_translate_progress,
+            staged=(cfg.translation_mode == "staged"),
         )
 
         # Sanity check: if a significant fraction of segments have
@@ -649,6 +650,7 @@ async def _run_translate_stage(
     translated = await translate_segments(
         segments, effective_src, target_lang, model,
         context_hint=context_hint,
+        staged=(cfg.translation_mode == "staged"),
     )
     # See comment on unload in main pipeline — free VRAM for VoxCPM
     try:
@@ -955,6 +957,7 @@ async def _continue_from_checkpoint(
             segments = await translate_segments(
                 cp["segments"], effective_src, target_lang, model,
                 context_hint=context_hint,
+                staged=(cfg.translation_mode == "staged"),
             )
             # Save translation_done checkpoint
             save_checkpoint(job_id, work, stage="translation_done", data={
@@ -1001,6 +1004,7 @@ async def _retranslate_stage(job_id: str, cp: dict, model: str,
         segments = await translate_segments(
             cp["segments"], effective_src, target_lang, model,
             context_hint=context_hint,
+            staged=(cfg.translation_mode == "staged"),
         )
         save_checkpoint(job_id, work, stage="translation_done", data={
             **cp,
