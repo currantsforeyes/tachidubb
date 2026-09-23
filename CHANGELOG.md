@@ -18,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Tests
 - `tests/test_client_narration.py` covers the client/CLI narration plumbing.
+- `test_routes` now asserts the served bundle actually contains the
+  Pronunciation tab and Narrator-mode toggle.
 
 ## [0.3.0] - 2026-09-23
 

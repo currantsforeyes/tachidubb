@@ -61,6 +61,7 @@ missing dependencies before submitting work. Common failures:
 | Task | MCP tool | CLI |
 |---|---|---|
 | Dub in one language | `tachidubb_dub` | `tachidubb dub <src> --lang fr` |
+| Narrator mode (one voice) | `tachidubb_dub(..., narration_mode=True)` | add `--narrator` to dub/compare/showcase/redub |
 | N separate dubs (compare) | `tachidubb_compare` | `tachidubb compare <src> --langs es,fr,de` |
 | Stitched multilingual reel | `tachidubb_showcase` | `tachidubb showcase <src> --langs es,fr,de` |
 | Re-dub existing job | `tachidubb_redub` | `tachidubb redub <jid> --langs ja,it --mode showcase` |

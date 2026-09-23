@@ -78,3 +78,12 @@ def test_pronunciation_endpoint():
     assert r.status_code == 200
     body = r.json()
     assert "rules" in body.get("data", {})
+
+
+def test_bundle_contains_pronunciation_and_narrator_ui():
+    """The committed bundle must include the Pronunciation tab and the
+    Narrator-mode toggle (guards against a forgotten rebuild)."""
+    bundle = client.get("/static/dist/app.js").content
+    assert b"pronunciation.json" in bundle
+    assert b"narration_mode" in bundle
+    assert b"Narrator mode" in bundle
