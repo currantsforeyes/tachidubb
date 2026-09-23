@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   exposed through the CLI (`--narrator` on `dub` / `compare` / `showcase` /
   `redub`) and the MCP tools.
 - CLI example for `--narrator` in the README.
+- CI now rebuilds the frontend and fails if the committed
+  `static/dist/app.js` is stale (guards against source/bundle drift).
 
 ### Tests
 - `tests/test_client_narration.py` covers the client/CLI narration plumbing.
