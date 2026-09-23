@@ -26,6 +26,12 @@ if not exist "musetalk-runtime\Scripts\python.exe" %MAKE_VENV% musetalk-runtime
 if errorlevel 1 goto :failed
 set PY=musetalk-runtime\Scripts\python.exe
 %PY% -m pip install --upgrade pip
+%PY% -m pip install setuptools wheel "numpy==1.23.5"
+if errorlevel 1 goto :failed
+REM chumpy's setup.py does `import pip`, which fails under pip's isolated
+REM build environment (no pip in it). Build it without isolation instead.
+%PY% -m pip install chumpy --no-build-isolation
+if errorlevel 1 goto :failed
 REM MuseTalk pins an older CUDA 11.8 torch. On RTX 40/50-series you may need a
 REM newer cu12x torch build instead — see the MuseTalk README.
 %PY% -m pip install torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 --index-url https://download.pytorch.org/whl/cu118

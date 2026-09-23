@@ -25,6 +25,10 @@ fi
 [ -d musetalk-runtime ] || $MAKE_VENV musetalk-runtime
 PY=musetalk-runtime/bin/python
 $PY -m pip install --upgrade pip
+$PY -m pip install setuptools wheel "numpy==1.23.5"
+# chumpy's setup.py does `import pip`, which fails under pip's isolated build
+# environment (no pip in it). Build it without isolation instead.
+$PY -m pip install chumpy --no-build-isolation
 # MuseTalk pins an older CUDA 11.8 torch. On newer GPUs you may need a newer
 # cu12x torch build instead — see the MuseTalk README.
 $PY -m pip install torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 \
