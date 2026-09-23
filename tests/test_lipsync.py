@@ -243,6 +243,34 @@ def test_worker_write_config_uses_safe_yaml(tmp_path):
     assert "\\" not in text
 
 
+def test_facealign_patch_detection(tmp_path):
+    repo = make_repo(tmp_path, "v15")
+    assert lipsync.facealign_patch_applied(repo) is False
+
+    p = repo / "musetalk" / "utils" / "preprocessing.py"
+    p.parent.mkdir(parents=True)
+    p.write_text("from mmpose import x\n", encoding="utf-8")
+    assert lipsync.facealign_patch_applied(repo) is False
+
+    p.write_text(lipsync.FACEALIGN_PATCH_MARKER, encoding="utf-8")
+    assert lipsync.facealign_patch_applied(repo) is True
+
+
+def test_worker_applies_preprocessing_patch(tmp_path):
+    from pipeline.musetalk_worker import apply_preprocessing_patch
+
+    repo = tmp_path / "MuseTalk"
+    dst = repo / "musetalk" / "utils" / "preprocessing.py"
+    dst.parent.mkdir(parents=True)
+    dst.write_text("from mmpose.apis import inference_topdown\n", encoding="utf-8")
+
+    assert apply_preprocessing_patch(repo) is True
+    assert lipsync.FACEALIGN_PATCH_MARKER in dst.read_text(encoding="utf-8")
+    assert dst.with_name("preprocessing.py.orig").exists()
+    # idempotent — a second run does nothing
+    assert apply_preprocessing_patch(repo) is False
+
+
 def test_probe_not_installed_lists_problems(monkeypatch, tmp_path):
     set_env(monkeypatch, repo=tmp_path / "nope")
     monkeypatch.setattr(lipsync, "resolve_runtime_python", lambda: None)

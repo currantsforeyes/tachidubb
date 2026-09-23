@@ -7,7 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- MuseTalk now runs **OpenMMLab-free**: the worker patches
+  `musetalk/utils/preprocessing.py` (backing up the original) to use MuseTalk's
+  vendored face detector instead of DWPose, and the installer uses
+  **torch 2.8.0+cu128** instead of the pinned 2.0.1+cu118. mmcv/mmdet/mmpose
+  are no longer installed. This makes lip-sync practical on RTX 40/50-series
+  (Blackwell) GPUs — a 3 s test clip went from 25+ min to ~80 s end-to-end.
+
 ### Fixed
+- MuseTalk under torch >=2.6: set `TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1` for the
+  child process, since MuseTalk loads legacy `.tar` checkpoints that the new
+  `weights_only=True` default rejects.
 - `install-musetalk`: build `chumpy` (a transitive dependency) with
   `--no-build-isolation`. Its `setup.py` imports `pip`, which isn't present in
   pip's isolated build environment, so the dependency install aborted.

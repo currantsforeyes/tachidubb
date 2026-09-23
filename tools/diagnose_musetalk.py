@@ -85,6 +85,8 @@ def main() -> int:
     _line(info["runtime_python"] is not None, "runtime interpreter",
           info["runtime_python"] or "not found")
     _line(bool(info["ffmpeg_bin"]), "ffmpeg", info["ffmpeg_bin"] or "not found")
+    _line(bool(info.get("facealign_patch")), "OpenMMLab-free patch",
+          "applied" if info.get("facealign_patch") else "will be applied on first lip-sync run")
 
     dep_ok = True
     if info["runtime_python"]:
@@ -94,10 +96,13 @@ def main() -> int:
             dep_ok = False
             _line(False, "could not probe runtime", deps["error"][:120])
         else:
-            for mod in ("torch", "mmcv", "mmpose", "mmdet"):
+            torch_val = str(deps.get("torch", "missing"))
+            dep_ok = not torch_val.startswith("ERROR")
+            _line(dep_ok, "torch", torch_val)
+            # OpenMMLab is optional now (only the unpatched DWPose path needs it)
+            for mod in ("mmcv", "mmpose", "mmdet"):
                 val = str(deps.get(mod, "missing"))
-                dep_ok &= not val.startswith("ERROR")
-                _line(not val.startswith("ERROR"), mod, val)
+                _line(not val.startswith("ERROR"), f"{mod} (optional)", val)
             _line(bool(deps.get("cuda")), "CUDA available",
                   f"torch cuda={deps.get('torch_cuda')}")
             cap = deps.get("capability")

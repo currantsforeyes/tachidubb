@@ -136,6 +136,21 @@ def missing_weight_files(repo_dir, version: Optional[str]) -> list:
     return [rel for rel in required_weight_files(version) if not (models / rel).exists()]
 
 
+# Marker present in the OpenMMLab-free preprocessing the worker installs.
+FACEALIGN_PATCH_MARKER = "face detector mode (no DWPose)"
+
+
+def facealign_patch_applied(repo_dir) -> bool:
+    """True if MuseTalk's preprocessing has been patched to skip DWPose/mmcv."""
+    p = Path(repo_dir) / "musetalk" / "utils" / "preprocessing.py"
+    if not p.exists():
+        return False
+    try:
+        return FACEALIGN_PATCH_MARKER in p.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return False
+
+
 def probe_musetalk() -> dict:
     """Detailed MuseTalk install diagnosis. Never raises.
 
@@ -188,6 +203,7 @@ def probe_musetalk() -> dict:
         "runtime_python": python,
         "ffmpeg_bin": ffmpeg_bin,
         "missing_weights": missing_weights,
+        "facealign_patch": facealign_patch_applied(repo_dir) if repo_dir else False,
         "candidates": candidates,
         "problems": problems,
     }

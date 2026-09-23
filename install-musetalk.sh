@@ -29,18 +29,14 @@ $PY -m pip install setuptools wheel "numpy==1.23.5"
 # chumpy's setup.py does `import pip`, which fails under pip's isolated build
 # environment (no pip in it). Build it without isolation instead.
 $PY -m pip install chumpy --no-build-isolation
-# MuseTalk pins an older CUDA 11.8 torch. On newer GPUs you may need a newer
-# cu12x torch build instead — see the MuseTalk README.
-$PY -m pip install torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 \
-    --index-url https://download.pytorch.org/whl/cu118
+# CUDA 12.8 torch: MuseTalk runs OpenMMLab-free here (the worker patches
+# preprocessing.py to use MuseTalk's vendored face detector), so we can use a
+# modern torch with native kernels for RTX 40/50-series (Blackwell) GPUs.
+$PY -m pip install torch==2.8.0+cu128 torchvision==0.23.0+cu128 torchaudio==2.8.0+cu128 \
+    --index-url https://download.pytorch.org/whl/cu128
 $PY -m pip install -r MuseTalk/requirements.txt
-$PY -m pip install -U openmim
-
-MIM=musetalk-runtime/bin/mim
-$MIM install mmengine
-$MIM install "mmcv==2.0.1"
-$MIM install "mmdet==3.1.0"
-$MIM install "mmpose==1.1.0"
+# OpenMMLab (mmcv/mmdet/mmpose) is intentionally NOT installed — their prebuilt
+# wheels stop at torch 2.1/CUDA 12.1 which has no Blackwell kernels.
 
 echo "Downloading MuseTalk weights (a few GB)..."
 ( cd MuseTalk && bash download_weights.sh )

@@ -32,22 +32,15 @@ REM chumpy's setup.py does `import pip`, which fails under pip's isolated
 REM build environment (no pip in it). Build it without isolation instead.
 %PY% -m pip install chumpy --no-build-isolation
 if errorlevel 1 goto :failed
-REM MuseTalk pins an older CUDA 11.8 torch. On RTX 40/50-series you may need a
-REM newer cu12x torch build instead — see the MuseTalk README.
-%PY% -m pip install torch==2.0.1 torchvision==0.15.2 torchaudio==2.0.2 --index-url https://download.pytorch.org/whl/cu118
+REM CUDA 12.8 torch: MuseTalk runs OpenMMLab-free here (the worker patches
+REM preprocessing.py to use MuseTalk's vendored face detector), so we can use a
+REM modern torch with native kernels for RTX 40/50-series (Blackwell) GPUs.
+%PY% -m pip install torch==2.8.0+cu128 torchvision==0.23.0+cu128 torchaudio==2.8.0+cu128 --index-url https://download.pytorch.org/whl/cu128
 if errorlevel 1 goto :failed
 %PY% -m pip install -r MuseTalk\requirements.txt
 if errorlevel 1 goto :failed
-%PY% -m pip install -U openmim
-if errorlevel 1 goto :failed
-musetalk-runtime\Scripts\mim.exe install mmengine
-if errorlevel 1 goto :failed
-musetalk-runtime\Scripts\mim.exe install "mmcv==2.0.1"
-if errorlevel 1 goto :failed
-musetalk-runtime\Scripts\mim.exe install "mmdet==3.1.0"
-if errorlevel 1 goto :failed
-musetalk-runtime\Scripts\mim.exe install "mmpose==1.1.0"
-if errorlevel 1 goto :failed
+REM OpenMMLab (mmcv/mmdet/mmpose) is intentionally NOT installed — their
+REM prebuilt wheels stop at torch 2.1/CUDA 12.1 which has no Blackwell kernels.
 
 echo.
 echo Downloading MuseTalk weights (a few GB)...
@@ -78,6 +71,5 @@ exit /b 1
 :failed
 echo.
 echo MuseTalk installation stopped. See the command above for the failing package.
-echo If torch failed on an RTX 40/50-series GPU, install a newer cu12x torch build.
 pause
 exit /b 1

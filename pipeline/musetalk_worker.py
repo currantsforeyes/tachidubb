@@ -37,7 +37,34 @@ from pathlib import Path
 
 # Deps that must be importable in the isolated runtime. Checked up-front so a
 # broken/incomplete install fails with a clear message instead of mid-run.
-_REQUIRED_MODULES = ("torch", "mmcv", "mmpose")
+# OpenMMLab (mmcv/mmpose) is NOT required: the preprocessing patch uses
+# MuseTalk's vendored face detector instead (see PATCH_TEMPLATE below).
+_REQUIRED_MODULES = ("torch",)
+
+# Drop-in preprocessing that uses the vendored face detector instead of
+# DWPose/mmcv, so MuseTalk runs on modern torch (cu128) — required for
+# Blackwell (RTX 50) GPUs. See tools/musetalk_preprocessing_facealign.py.
+PATCH_TEMPLATE = Path(__file__).resolve().parents[1] / "tools" / "musetalk_preprocessing_facealign.py"
+PATCH_MARKER = "face detector mode (no DWPose)"
+
+
+def apply_preprocessing_patch(repo: Path) -> bool:
+    """Install the OpenMMLab-free preprocessing. Returns True if it wrote it."""
+    dst = repo / "musetalk" / "utils" / "preprocessing.py"
+    if not PATCH_TEMPLATE.exists() or not dst.parent.exists():
+        return False
+    try:
+        current = dst.read_text(encoding="utf-8", errors="replace") if dst.exists() else ""
+        if PATCH_MARKER in current:
+            return False
+        backup = dst.with_name("preprocessing.py.orig")
+        if dst.exists() and not backup.exists():
+            shutil.copyfile(dst, backup)
+        dst.write_text(PATCH_TEMPLATE.read_text(encoding="utf-8"), encoding="utf-8")
+        return True
+    except Exception as exc:  # noqa: BLE001
+        event(event="patch_error", error=f"{type(exc).__name__}: {exc}")
+        return False
 
 
 def event(**payload) -> None:
@@ -107,6 +134,7 @@ def main(job_path: str) -> None:
               error=f"MuseTalk checkout looks incomplete: {repo}/scripts/inference.py missing")
         sys.exit(1)
 
+    event(event="preprocessing_patch", applied=apply_preprocessing_patch(repo))
     preflight()
 
     # Fresh per-run result dir so output discovery can't pick up a stale file.
@@ -138,6 +166,10 @@ def main(job_path: str) -> None:
     env = os.environ.copy()
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUTF8"] = "1"
+    # MuseTalk loads legacy .tar checkpoints; torch >=2.6 defaults
+    # torch.load(weights_only=True) and refuses them. This is the documented
+    # escape hatch (trusted, locally-downloaded weights).
+    env["TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD"] = "1"
     try:
         proc = subprocess.run(
             cmd, cwd=str(repo), capture_output=True, text=True,

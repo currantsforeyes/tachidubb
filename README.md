@@ -429,14 +429,18 @@ TACHIDUBB_FFMPEG_BIN=C:\path\to\ffmpeg\bin
 </details>
 
 <details>
-<summary><b>Lip-sync (MuseTalk) is extremely slow on an RTX 50-series GPU</b></summary>
+<summary><b>Lip-sync (MuseTalk) was extremely slow on an RTX 50-series GPU</b></summary>
 
-MuseTalk pins an older `torch 2.0.1+cu118`, which has no native kernels for
-Blackwell (sm_120) GPUs, so inference falls back to a very slow path (the
-`diagnose_musetalk.py` output will say so). Options: run lip-sync on an RTX
-30/40-series card, or accept the slow pass. If you upgrade the runtime's torch
-to a cu12.8+ build, note that OpenMMLab's prebuilt `mmcv`/`mmpose` wheels may
-no longer match and could need reinstalling.
+Fixed. MuseTalk's upstream stack pinned `torch 2.0.1+cu118` (no native kernels
+for Blackwell/sm_120) and used OpenMMLab (mmcv/mmpose) whose prebuilt wheels
+stop at CUDA 12.1. The installer now uses **`torch 2.8.0+cu128`** and the worker
+patches `preprocessing.py` to use MuseTalk's own vendored face detector instead
+of DWPose, so **OpenMMLab is no longer installed or required** for inference —
+much faster on RTX 40/50-series. If you installed before this change, re-run
+`install-musetalk.bat` (or `./install-musetalk.sh`).
+
+Note: MuseTalk's *training* script (`scripts/preprocess.py`) still needs
+OpenMMLab; only inference is patched.
 
 </details>
 
