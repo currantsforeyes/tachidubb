@@ -1556,7 +1556,7 @@ function ResultViewInner({ job, jobs, voicePresets, onPickJob, onSwitchToHistory
 
         <ExpandPanel
           open={open.lipsync} onToggle={() => toggle('lipsync')}
-          title="Lip-sync (Wav2Lip)"
+          title="Lip-sync (MuseTalk)"
           subtitle="Match speaker mouth movement to dubbed audio. Optional — only useful for talking-head footage."
           icon={<span style={{ fontSize: 13 }}>◑</span>}
         >
@@ -1974,9 +1974,8 @@ function LipSyncPanel({ job, onSynced }) {
   if (!lipStatus.installed) {
     const guide = lipStatus.guide || {};
     const steps = guide.steps || [
-      'git clone https://github.com/Rudrabha/Wav2Lip.git',
-      'pip install -r Wav2Lip/requirements.txt',
-      'wget -P Wav2Lip/checkpoints/ https://iitbacin.sharepoint.com/.../wav2lip_gan.pth',
+      'install-musetalk.bat   (Windows)  /  ./install-musetalk.sh   (Linux/macOS)',
+      'Restart TachiDUBB Studio',
     ];
     return (
       <div style={{ paddingTop: 14 }}>
@@ -1989,10 +1988,10 @@ function LipSyncPanel({ job, onSynced }) {
           <span style={{ color: 'var(--warn)', marginTop: 2 }}>{I.warn}</span>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 12.5, color: 'var(--ink)', fontWeight: 500, marginBottom: 4 }}>
-              Wav2Lip not installed
+              MuseTalk not installed
             </div>
             <div style={{ fontSize: 11.5, color: 'var(--ink-3)', lineHeight: 1.5 }}>
-              Optional one-time setup. Adds ~1.4 GB. Only worth installing if your videos are mostly close-up talking heads.
+              Optional one-time setup. Creates an isolated runtime and downloads model weights. Only worth installing if your videos are mostly close-up talking heads.
             </div>
           </div>
         </div>
@@ -2018,7 +2017,7 @@ function LipSyncPanel({ job, onSynced }) {
   return (
     <div style={{ paddingTop: 14 }}>
       <div style={{ fontSize: 12.5, color: 'var(--ink-2)', marginBottom: 10 }}>
-        Wav2Lip detected at <code className="mono" style={{ color: 'var(--ink)' }}>{lipStatus.repo_dir}</code>
+        MuseTalk detected at <code className="mono" style={{ color: 'var(--ink)' }}>{lipStatus.repo_dir}</code>
       </div>
       <button onClick={run} disabled={running} className="btn btn-primary">
         {running ? 'Running lip-sync…' : 'Run lip-sync pass  ▸'}
@@ -2029,7 +2028,7 @@ function LipSyncPanel({ job, onSynced }) {
         </div>
       )}
       <div className="mono" style={{ fontSize: 10, color: 'var(--ink-4)', marginTop: 8 }}>
-        ~4-8 minutes on a single video · faces must be visible &amp; centered
+        ~real-time on a modern GPU · faces must be visible &amp; centered
       </div>
     </div>
   );
@@ -3693,14 +3692,13 @@ function SysAddons() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <AddonCard
-        name="Wav2Lip"
+        name="MuseTalk"
         detail="Match speaker mouth movement to dubbed audio. Optional. Only helps when faces are visible and centered."
         installed={lipStatus?.installed ?? null}
-        size="~1.4 GB · one-time download"
+        size="~a few GB · one-time download"
         steps={[
-          'git clone https://github.com/Rudrabha/Wav2Lip.git',
-          'pip install -r Wav2Lip/requirements.txt',
-          'wget -P Wav2Lip/checkpoints/ https://iitbacin.sharepoint.com/.../wav2lip_gan.pth',
+          'install-musetalk.bat   (Windows)  /  ./install-musetalk.sh   (Linux/macOS)',
+          'Restart TachiDUBB Studio',
         ]}
         onRefresh={() => fetch('/api/lip_sync/status').then(r => r.json()).then(setLipStatus)}
         repoDir={lipStatus?.repo_dir}
@@ -4348,10 +4346,10 @@ function HomeView({ system, voicePresets, sphereOn, onJobSubmitted }) {
         <Toggle value={autoDenoise} onChange={setAutoDenoise} label="Auto-denoise audio" hint="+3-5s · ON for noisy footage (mat sounds, crowd, AC hum) · OFF for clean studio audio"/>
         <Toggle value={lipSync} onChange={setLipSync}
                 disabled={lipStatus && !lipStatus.installed}
-                label={'Sync lips with Wav2Lip' + (lipStatus && !lipStatus.installed ? ' (not installed)' : '')}
+                label={'Sync lips with MuseTalk' + (lipStatus && !lipStatus.installed ? ' (not installed)' : '')}
                 hint={lipStatus && !lipStatus.installed
-                  ? 'Wav2Lip not detected. Install via System tab to enable. Adds 2-5x video duration to processing time.'
-                  : 'Auto-runs Wav2Lip after dubbing. Best for talking-head footage; fails on action shots or far-away faces. Adds 2-5x video duration.'}/>
+                  ? 'MuseTalk not detected. Install via System tab to enable.'
+                  : 'Auto-runs MuseTalk after dubbing. Best for talking-head footage; fails on action shots or far-away faces. Roughly real-time on a modern GPU.'}/>
         <Toggle value={llmRegroup}  onChange={setLlmRegroup}  label="LLM segment regrouping" hint="+20-40s on long videos · fixes mid-sentence breaks · best for podcasts, lectures, seminars"/>
         <Toggle value={wizardReview} onChange={setWizardReview} label="Wizard mode — pause for review" hint="Pause after translation so you can edit segments and replace voice references."/>
 

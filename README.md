@@ -510,6 +510,7 @@ Follow the build on X: [@smolekoma](https://x.com/smolekoma) &middot; [@smolemar
 
 Standing on shoulders:
 - [VoxCPM2](https://huggingface.co/openbmb/VoxCPM2) — voice cloning TTS (Apache-2.0)
+- [MuseTalk](https://github.com/TMElyralab/MuseTalk) — lip-sync (MIT)
 - [faster-whisper](https://github.com/SYSTRAN/faster-whisper) — ASR (MIT)
 - [pyannote.audio](https://github.com/pyannote/pyannote-audio) — diarization (MIT)
 - [Ollama](https://ollama.com) — local LLM serving (MIT)

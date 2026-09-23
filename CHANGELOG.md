@@ -13,8 +13,76 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tachidubb_rebuild_showcase` (MCP) / `showcase-rebuild` (CLI) — re-stitch without re-dubbing
 - `tachidubb_list_models` — query installed Ollama translation models
 - `examples/` directory with ready-to-run dub, showcase, and agent scripts
+- `tests/` pytest suite covering the pure pipeline helpers (segment cleanup,
+  speech grouping, speaker assignment/smoothing, TTS QA scoring, translation
+  parsing, SRT rendering, showcase slicing) and the SQLite job store
+- `pipeline/showcase.py` — timeline slicing extracted from `server.py` so it is
+  unit-testable without the FastAPI/GPU stack
+- `app/checkpoints.py` — per-stage checkpoint/resume logic extracted from
+  `server.py` for the same reason
+- `pipeline/media.py` — SRT writing, video trimming, duration probing and
+  drawtext font lookup extracted from `server.py`
+- `app/voices.py` — built-in voice styles plus user file-preset scanning,
+  resolution and name sanitization extracted from `server.py`
+- `app/storage.py` — disk-usage accounting, cleanup-candidate selection and
+  stats aggregation extracted from `server.py`
+- `pipeline/subtitles.py` — subtitle style map, ffmpeg `subtitles` filter
+  construction and preview-timestamp picking extracted from `server.py`
+- `app/state.py` — shared in-memory job store + restart-recovery logic
+  extracted from `server.py`
+- `app/routers/storage.py` — first route group split out of `server.py`
+  (storage stats / starring / cleanup)
+- `app/routers/system.py` — health, model management, config, preferences and
+  glossary routes split out of `server.py`
+- `app/routers/voices.py` — voice-preset list / audio-stream / create / update
+  / delete routes split out of `server.py`
+- `app/routers/media.py` — waveform, subtitle preview and subtitle burn-in
+  routes split out of `server.py`
+- `app/routers/lipsync.py` + `app/lipsync.py` — lip-sync status/run routes and
+  the MuseTalk orchestration (`run_lipsync`) split out of `server.py`
+- `app/queue.py` — the serial GPU job queue, cron-style scheduler, Windows
+  sleep prevention and `JobCancelled` extracted from `server.py`. The queue
+  worker receives the pipeline runner + showcase hook via `start()` (avoids an
+  import cycle); the server lifespan and cancel route were rewired to it
+- `app/pipeline.py` — the `run_pipeline` orchestrator extracted from
+  `server.py`; `terminate_tts_worker` moved to `app/tts.py` and
+  `save_placements`/`load_placements` moved to `pipeline/showcase.py` so the
+  orchestrator has no server-local dependencies
+- `app/routers/jobs.py` — job list/get/cancel/delete/download, per-speaker
+  reference inspection and transcript-export routes split out of `server.py`
+- `app/routers/dub.py` — the submit routes (`/api/dub`, `/api/dub/batch`,
+  `/api/quick_test`) and the per-job editing routes (`checkpoint`, `continue`,
+  `retry_tts`, `retranslate`, `timeline`, `regenerate_segment`, `edit_*`)
+- stage helpers (`_run_translate_stage`, `_run_tts_and_merge_stage`,
+  `retry_tts_pipeline`, `_continue_from_checkpoint`, `_retranslate_stage`,
+  `_regen_single_segment`) appended to `app/pipeline.py`
+- `app/languages.py` — quick-test/batch language sets shared by the dub and
+  showcase routes
+- `app/showcase.py` + `app/routers/showcase.py` — the showcase batch state and
+  assembly helpers, and the showcase/redub/export routes, split out of
+  `server.py`
+- `app/main.py` — the FastAPI app, lifespan, logging filters and router
+  registration moved out of `server.py`; `server.py` is now a 20-line
+  `uvicorn` entry point (still the launcher used by `start.bat` /
+  `start-qwen.bat`)
+- `app/tts.py` — TTS engine factory + GPU-cleanup helper extracted from
+  `server.py` (so routers can obtain an engine without importing the app)
+- `app/glossary.py` — user-glossary example + validation extracted from
+  `server.py`
+- MuseTalk lip-sync backend replacing Wav2Lip as the default (MIT, 256×256
+  mouth region, ~4 GB VRAM fp16): `pipeline/lipsync.py`,
+  `pipeline/musetalk_worker.py`, and `install-musetalk.bat` / `.sh` which set
+  up an isolated `musetalk-runtime` (OpenMMLab deps stay out of the main venv)
+- CI `test` job, plus explicit `ruff` + `pytest` configuration in `pyproject.toml`
 
 ### Fixed
+- **CI never ran** — `.github/workflows/lint.yml` targeted the nonexistent
+  `main` branch while the default branch is `master`
+- `VoxCPMSynthesizer.unload()` referenced an undefined `subprocess` in its
+  worker-kill fallback, so a hung worker was never force-killed (the resulting
+  `NameError` was swallowed by the outer handler)
+- Removed a duplicate `"reverse de la riva"` glossary entry whose second mapping
+  was silently ignored
 - **Voice consistency in cross-lingual cloning** — QA retries were mutating the seed
   per retry attempt in cloning mode, producing audibly different timbres for
   segments that failed-then-retried. Cloning mode now sets `MAX_QA_RETRIES = 0`
