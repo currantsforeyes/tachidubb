@@ -509,6 +509,23 @@ Each MCP tool call requires user confirmation by default (per the MCP spec). Tac
 
 ---
 
+## 📦 Packaging & releases
+
+TachiDUBB ships as **source**, not as a prebuilt binary. The supported paths
+are `git clone` + the installer, or the source archive attached to each
+[GitHub Release](https://github.com/TachikomaRed/tachidubb/releases). Releases
+are cut by pushing a `v*` tag: `.github/workflows/release.yml` runs the test
+suite, then publishes a source `.zip` and `SHA256SUMS.txt`.
+
+There is intentionally no prebuilt installer or container image yet — models
+(~18 GB, some under third-party licences), a driver-specific CUDA/torch stack,
+and three optional Python runtimes make a bundled artifact a poor fit.
+[docs/PACKAGING.md](docs/PACKAGING.md) documents exactly what we ship, how to
+cut and verify a release, and the full requirements catalogue for a future
+container image.
+
+---
+
 ## 🗺️ Roadmap
 
 - [x] MCP server + CLI
@@ -520,7 +537,7 @@ Each MCP tool call requires user confirmation by default (per the MCP spec). Tac
 - [ ] Speaker labelling UI (assign names to detected speakers)
 - [ ] Browser-only mode (no Ollama dependency, use llama.cpp WASM)
 - [ ] Batch processing folder watcher
-- [ ] Docker image with everything pre-baked
+- [ ] Docker image with everything pre-baked (requirements catalogued in [docs/PACKAGING.md](docs/PACKAGING.md))
 - [ ] Hardware-accelerated diarization (NVIDIA NeMo)
 - [ ] Apple Silicon MLX backend
 

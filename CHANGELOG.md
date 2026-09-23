@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI now rebuilds the frontend and fails if the committed
   `static/dist/app.js` is stale (guards against source/bundle drift).
 
+### Docs
+- `docs/PACKAGING.md`: what we ship and why (source + installer, tag-triggered
+  GitHub Releases, checksum verification), plus a requirements catalogue and
+  definition-of-done for a future container image. Linked from the README.
+
 ### Tests
 - `tests/test_client_narration.py` covers the client/CLI narration plumbing.
 - `test_routes` now asserts the served bundle actually contains the
