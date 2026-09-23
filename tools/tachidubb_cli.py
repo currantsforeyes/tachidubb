@@ -70,6 +70,7 @@ async def cmd_dub(c: TachiDUBBClient, a) -> None:
         whisper_model=a.whisper, voice_preset=a.voice,
         tts_speed=a.tts_speed, speaker_mode=a.speakers,
         keep_bg=a.keep_bg, context_hint=a.context or "",
+        narration_mode=a.narrator,
     )
     job_id = res.get("job_id")
     _print_json(res)
@@ -90,6 +91,7 @@ async def cmd_compare(c: TachiDUBBClient, a) -> None:
         source_lang=a.source_lang, model=a.model,
         whisper_model=a.whisper, voice_preset=a.voice,
         tts_speed=a.tts_speed, keep_bg=a.keep_bg,
+        narration_mode=a.narrator,
     )
     _print_json(res)
     if a.wait and res.get("batch_id"):
@@ -106,6 +108,7 @@ async def cmd_showcase(c: TachiDUBBClient, a) -> None:
         source_lang=a.source_lang, model=a.model,
         whisper_model=a.whisper, voice_preset=a.voice,
         tts_speed=a.tts_speed, keep_bg=a.keep_bg,
+        narration_mode=a.narrator,
     )
     _print_json(res)
     if a.wait and res.get("batch_id"):
@@ -120,7 +123,8 @@ async def cmd_showcase(c: TachiDUBBClient, a) -> None:
 
 
 async def cmd_redub(c: TachiDUBBClient, a) -> None:
-    res = await c.redub(a.job_id, a.langs, mode=a.mode)
+    res = await c.redub(a.job_id, a.langs, mode=a.mode,
+                        narration_mode=(True if a.narrator else None))
     _print_json(res)
     if a.wait:
         if res.get("batch_id"):
@@ -247,6 +251,8 @@ def _add_common_dub_opts(p: argparse.ArgumentParser) -> None:
     p.add_argument("--tts-speed", default="balanced",
                    choices=["fast", "balanced", "quality"])
     p.add_argument("--keep-bg", action="store_true", help="Keep background music")
+    p.add_argument("--narrator", action="store_true",
+                   help="Narrator mode: one voice for the whole video (skips diarization)")
     p.add_argument("--wait", action="store_true", help="Block until job(s) finish")
     p.add_argument("--wait-timeout", type=float, default=1800.0,
                    help="Seconds before --wait gives up (default 1800)")
@@ -295,6 +301,8 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--mode", default="compare", choices=["single", "compare", "showcase"])
     s.add_argument("--wait", action="store_true")
     s.add_argument("--wait-timeout", type=float, default=1800.0)
+    s.add_argument("--narrator", action="store_true",
+                   help="Force narrator mode for the re-dub")
     s.set_defaults(handler=cmd_redub)
 
     # status / jobs / wait

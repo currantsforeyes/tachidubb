@@ -84,6 +84,7 @@ async def tachidubb_dub(
     tts_speed: str = "balanced",
     keep_bg: bool = False,
     context_hint: str = "",
+    narration_mode: bool = False,
     wait: bool = False,
     wait_timeout: float = 1800.0,
 ) -> dict:
@@ -98,6 +99,7 @@ async def tachidubb_dub(
         tts_speed: 'fast' | 'balanced' | 'quality'.
         keep_bg: Preserve background music under the new dub.
         context_hint: Free-text hint for translator (e.g. "tech podcast").
+        narration_mode: Read everything in one voice (skip diarization).
         wait: If True, block until job finishes and return final status + url.
         wait_timeout: Max seconds to wait when wait=True.
 
@@ -109,6 +111,7 @@ async def tachidubb_dub(
         source_lang=source_lang, model=model,
         voice_preset=voice_preset, tts_speed=tts_speed,
         keep_bg=keep_bg, context_hint=context_hint,
+        narration_mode=narration_mode,
     )
     job_id = res.get("job_id")
     if wait and job_id:
@@ -130,6 +133,7 @@ async def tachidubb_compare(
     voice_preset: str = "auto",
     tts_speed: str = "balanced",
     keep_bg: bool = False,
+    narration_mode: bool = False,
     wait: bool = False,
     wait_timeout: float = 3600.0,
 ) -> dict:
@@ -144,6 +148,7 @@ async def tachidubb_compare(
         source, target_langs, trim_seconds=trim_seconds,
         source_lang=source_lang, model=model,
         voice_preset=voice_preset, tts_speed=tts_speed, keep_bg=keep_bg,
+        narration_mode=narration_mode,
     )
     if wait and res.get("batch_id"):
         jobs = await c.wait_for_batch(res["batch_id"], timeout=wait_timeout)
@@ -165,6 +170,7 @@ async def tachidubb_showcase(
     voice_preset: str = "auto",
     tts_speed: str = "balanced",
     keep_bg: bool = False,
+    narration_mode: bool = False,
     wait: bool = False,
     wait_timeout: float = 3600.0,
 ) -> dict:
@@ -181,6 +187,7 @@ async def tachidubb_showcase(
         source, target_langs, trim_seconds=trim_seconds,
         source_lang=source_lang, model=model,
         voice_preset=voice_preset, tts_speed=tts_speed, keep_bg=keep_bg,
+        narration_mode=narration_mode,
     )
     if wait and res.get("batch_id"):
         bid = res["batch_id"]
@@ -200,6 +207,7 @@ async def tachidubb_redub(
     model: Optional[str] = None,
     voice_preset: Optional[str] = None,
     tts_speed: Optional[str] = None,
+    narration_mode: Optional[bool] = None,
     wait: bool = False,
     wait_timeout: float = 3600.0,
 ) -> dict:
@@ -213,6 +221,7 @@ async def tachidubb_redub(
     res = await c.redub(
         job_id, target_langs, mode=mode,
         model=model, voice_preset=voice_preset, tts_speed=tts_speed,
+        narration_mode=narration_mode,
     )
     if wait:
         if res.get("batch_id"):

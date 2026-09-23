@@ -98,6 +98,7 @@ class TachiDUBBClient:
         speaker_mode: str = "main",
         keep_bg: bool = False,
         auto_denoise: bool = False,
+        narration_mode: bool = False,
         context_hint: str = "",
         wizard_mode: str = "auto",
     ) -> dict:
@@ -113,6 +114,7 @@ class TachiDUBBClient:
             "speaker_mode": speaker_mode,
             "keep_bg": str(bool(keep_bg)).lower(),
             "auto_denoise": str(bool(auto_denoise)).lower(),
+            "narration_mode": str(bool(narration_mode)).lower(),
             "context_hint": context_hint,
             "wizard_mode": wizard_mode,
         })
@@ -132,6 +134,7 @@ class TachiDUBBClient:
         voice_preset: str = "auto",
         tts_speed: str = "balanced",
         keep_bg: bool = False,
+        narration_mode: bool = False,
     ) -> dict:
         """Submit N separate dubs (Quick Test mode). 2-6 target_langs."""
         if isinstance(target_langs, (list, tuple)):
@@ -145,6 +148,7 @@ class TachiDUBBClient:
             "voice_preset": voice_preset,
             "tts_speed": tts_speed,
             "keep_bg": str(bool(keep_bg)).lower(),
+            "narration_mode": str(bool(narration_mode)).lower(),
         })
         if model:
             form["model"] = model
@@ -162,6 +166,7 @@ class TachiDUBBClient:
         voice_preset: str = "auto",
         tts_speed: str = "balanced",
         keep_bg: bool = False,
+        narration_mode: bool = False,
     ) -> dict:
         """Submit a multilingual showcase reel. 2-6 target_langs are
         dubbed independently then stitched into one continuous video."""
@@ -176,6 +181,7 @@ class TachiDUBBClient:
             "voice_preset": voice_preset,
             "tts_speed": tts_speed,
             "keep_bg": str(bool(keep_bg)).lower(),
+            "narration_mode": str(bool(narration_mode)).lower(),
         })
         if model:
             form["model"] = model
@@ -190,6 +196,7 @@ class TachiDUBBClient:
         model: Optional[str] = None,
         voice_preset: Optional[str] = None,
         tts_speed: Optional[str] = None,
+        narration_mode: Optional[bool] = None,
     ) -> dict:
         """Re-dub an existing job's source into new language(s) without
         re-uploading. Inherits settings from the original; overrides allowed."""
@@ -200,6 +207,8 @@ class TachiDUBBClient:
                      ("tts_speed", tts_speed)):
             if v is not None:
                 form[k] = v
+        if narration_mode is not None:
+            form["narration_mode"] = str(bool(narration_mode)).lower()
         return await self._request("POST", f"/api/job/{job_id}/redub", data=form)
 
     # ── status / inspection ───────────────────────────────────────────

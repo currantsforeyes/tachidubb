@@ -50,6 +50,7 @@ async def start_showcase(
     tts_speed: str = Form("balanced"),
     keep_bg: bool = Form(False),
     auto_denoise: bool = Form(False),
+    narration_mode: bool = Form(False),  # single narrator voice; skip diarization
     context_hint: str = Form(""),
     batch_label: str = Form(""),
 ):
@@ -157,6 +158,7 @@ async def start_showcase(
             "keep_bg": keep_bg,
             "wizard_mode": "auto",
             "auto_denoise": auto_denoise,
+            "narration_mode": bool(narration_mode),
             "batch_id": batch_id,
             "batch_label": label_final,
             "batch_kind": "showcase",
@@ -182,6 +184,7 @@ async def start_showcase(
             "tts_speed": tts_speed,
             "wizard_mode": "auto",
             "auto_denoise": auto_denoise,
+            "narration_mode": bool(narration_mode),
         })
         job_ids.append(jid)
 
@@ -267,6 +270,7 @@ async def redub_job(
     tts_speed: Optional[str] = Form(None),
     keep_bg: Optional[bool] = Form(None),
     speaker_mode: Optional[str] = Form(None),
+    narration_mode: Optional[bool] = Form(None),
 ):
     """Re-dub an existing video into new language(s). Reuses the original
     source (file path or URL) — no re-upload required, just specify which
@@ -352,6 +356,8 @@ async def redub_job(
         "keep_bg": keep_bg if keep_bg is not None else bool(orig.get("keep_bg", False)),
         "speaker_mode": speaker_mode or orig.get("speaker_mode", "main"),
         "auto_denoise": bool(orig.get("auto_denoise", False)),
+        "narration_mode": (bool(narration_mode) if narration_mode is not None
+                           else bool(orig.get("narration_mode", False))),
         "context_hint": orig.get("context_hint", ""),
         "source_lang": orig.get("source_lang", "auto"),
     }
@@ -377,6 +383,7 @@ async def redub_job(
             "keep_bg": settings["keep_bg"],
             "wizard_mode": "auto",
             "auto_denoise": settings["auto_denoise"],
+            "narration_mode": settings["narration_mode"],
             "redubbed_from": job_id,
             "created": time.time(),
             "scheduled_at": 0,
@@ -402,6 +409,7 @@ async def redub_job(
             "tts_speed": settings["tts_speed"],
             "wizard_mode": "auto",
             "auto_denoise": settings["auto_denoise"],
+            "narration_mode": settings["narration_mode"],
         }
 
     # ── Single mode: one job, no batch wrapper ────────────────────────

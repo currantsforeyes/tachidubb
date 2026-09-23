@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Narrator mode everywhere.** The batch, quick-test, showcase and re-dub
+  routes now accept `narration_mode` (previously `/api/dub` only), and it's
+  exposed through the CLI (`--narrator` on `dub` / `compare` / `showcase` /
+  `redub`) and the MCP tools.
+- CLI example for `--narrator` in the README.
+
+### Tests
+- `tests/test_client_narration.py` covers the client/CLI narration plumbing.
+
 ## [0.3.0] - 2026-09-23
 
 ### Added

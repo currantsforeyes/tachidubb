@@ -124,6 +124,9 @@ The repo ships a Claude Code skill at [`.claude/skills/tachidubb/SKILL.md`](.cla
 # Single language, blocking
 python tools/tachidubb_cli.py dub https://youtu.be/abc --lang fr --wait
 
+# Narrator mode — one cloned voice reads the whole video (skips diarization)
+python tools/tachidubb_cli.py dub https://youtu.be/abc --lang fr --narrator --wait
+
 # Compare 5 languages side-by-side
 python tools/tachidubb_cli.py compare ./clip.mp4 --langs es,fr,de,ja,pt --trim 60
 

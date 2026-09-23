@@ -215,6 +215,7 @@ async def start_batch_dub(
     tts_speed: str = Form("balanced"),
     wizard_mode: str = Form("auto"),  # Usually "auto" for batch — no pauses
     auto_denoise: bool = Form(False),
+    narration_mode: bool = Form(False),  # single narrator voice; skip diarization
     batch_label: str = Form(""),  # optional: "BJJ Course Week 1" for summary
     scheduled_at: float = Form(0.0),  # unix epoch seconds; 0 = start immediately
 ):
@@ -310,6 +311,7 @@ async def start_batch_dub(
             "keep_bg": keep_bg,
             "wizard_mode": wizard_mode,
             "auto_denoise": auto_denoise,
+            "narration_mode": bool(narration_mode),
             "batch_id": batch_id,
             "batch_label": batch_label,
             "created": time.time(),
@@ -324,6 +326,7 @@ async def start_batch_dub(
                 "context_hint": context_hint, "voice_style": voice_style,
                 "voice_preset": voice_preset, "tts_speed": tts_speed,
                 "wizard_mode": wizard_mode, "auto_denoise": auto_denoise,
+                "narration_mode": bool(narration_mode),
             } if is_scheduled else None),
         }
         save_job(jobs[jid])
@@ -335,6 +338,7 @@ async def start_batch_dub(
             "context_hint": context_hint, "voice_style": voice_style,
             "voice_preset": voice_preset, "tts_speed": tts_speed,
             "wizard_mode": wizard_mode, "auto_denoise": auto_denoise,
+            "narration_mode": bool(narration_mode),
         })
         job_ids.append(jid)
 
@@ -367,6 +371,7 @@ async def start_batch_dub(
             "keep_bg": keep_bg,
             "wizard_mode": wizard_mode,
             "auto_denoise": auto_denoise,
+            "narration_mode": bool(narration_mode),
             "batch_id": batch_id,
             "batch_label": batch_label,
             "created": time.time(),
@@ -379,6 +384,7 @@ async def start_batch_dub(
                 "context_hint": context_hint, "voice_style": voice_style,
                 "voice_preset": voice_preset, "tts_speed": tts_speed,
                 "wizard_mode": wizard_mode, "auto_denoise": auto_denoise,
+                "narration_mode": bool(narration_mode),
             } if is_scheduled else None),
         }
         save_job(jobs[jid])
@@ -390,6 +396,7 @@ async def start_batch_dub(
             "context_hint": context_hint, "voice_style": voice_style,
             "voice_preset": voice_preset, "tts_speed": tts_speed,
             "wizard_mode": wizard_mode, "auto_denoise": auto_denoise,
+            "narration_mode": bool(narration_mode),
         })
         job_ids.append(jid)
 
@@ -465,6 +472,7 @@ async def start_quick_test(
     tts_speed: str = Form("balanced"),
     keep_bg: bool = Form(False),
     auto_denoise: bool = Form(False),
+    narration_mode: bool = Form(False),  # single narrator voice; skip diarization
     context_hint: str = Form(""),
     batch_label: str = Form(""),
 ):
@@ -581,6 +589,7 @@ async def start_quick_test(
             "keep_bg": keep_bg,
             "wizard_mode": "auto",     # never pause in quick-test mode
             "auto_denoise": auto_denoise,
+            "narration_mode": bool(narration_mode),
             "batch_id": batch_id,
             "batch_label": label_final,
             "batch_kind": "quick_test",
@@ -606,6 +615,7 @@ async def start_quick_test(
             "tts_speed": tts_speed,
             "wizard_mode": "auto",
             "auto_denoise": auto_denoise,
+            "narration_mode": bool(narration_mode),
         })
         job_ids.append(jid)
 
