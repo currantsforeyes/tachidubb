@@ -2974,6 +2974,7 @@ function SystemView({ system, onRefreshSystem }) {
             ['models',   'Models'],
             ['storage',  'Storage'],
             ['glossary', 'Glossary'],
+            ['pronunciation', 'Pronunciation'],
             ['addons',   'Add-ons'],
           ].map(([id, label]) => (
             <div key={id} className={'tab' + (tab === id ? ' active' : '')} onClick={() => setTab(id)}>
@@ -2986,6 +2987,7 @@ function SystemView({ system, onRefreshSystem }) {
         {tab === 'models'   && <SysModels system={system} onRefresh={onRefreshSystem}/>}
         {tab === 'storage'  && <SysStorage/>}
         {tab === 'glossary' && <SysGlossary/>}
+        {tab === 'pronunciation' && <SysPronunciation/>}
         {tab === 'addons'   && <SysAddons/>}
       </div>
     </div>
@@ -3540,6 +3542,126 @@ function SysGlossary() {
   );
 }
 
+// ── Pronunciation tab — TTS word overrides ──────────────────────────
+function SysPronunciation() {
+  const [text, setText] = useState('');
+  const [original, setOriginal] = useState('');
+  const [meta, setMeta] = useState(null);
+  const [error, setError] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(() => {
+    fetch('/api/pronunciation').then(r => r.json()).then(d => {
+      const t = JSON.stringify(d.data || { rules: [] }, null, 2);
+      setText(t); setOriginal(t); setMeta(d);
+    });
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const valid = useMemo(() => {
+    try { JSON.parse(text); return true; } catch { return false; }
+  }, [text]);
+
+  const save = async () => {
+    setSaving(true); setError(null);
+    try {
+      const fd = new FormData();
+      fd.append('body', text);
+      const r = await fetch('/api/pronunciation', { method: 'POST', body: fd });
+      const d = await r.json();
+      if (d.ok) { setOriginal(text); setMeta(prev => ({ ...prev, exists: true })); }
+      else { setError(d.error || 'Save failed'); }
+    } catch (e) { setError(String(e)); }
+    finally { setSaving(false); }
+  };
+
+  const revert = () => { setText(original); setError(null); };
+
+  const removeFile = async () => {
+    if (!confirm('Delete presets/pronunciation.json?')) return;
+    await fetch('/api/pronunciation', { method: 'DELETE' });
+    load();
+  };
+
+  const count = useMemo(() => {
+    try { return (JSON.parse(text).rules || []).length; } catch { return 0; }
+  }, [text]);
+
+  const dirty = text !== original;
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 12, flexWrap: 'wrap' }}>
+        <div className="serif" style={{ fontSize: 22 }}>Pronunciation</div>
+        <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>· how TTS says a word · subtitles unchanged</span>
+        <div style={{ flex: 1 }}/>
+        <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}>
+          {count} rule{count === 1 ? '' : 's'}
+        </span>
+      </div>
+
+      <div style={{ background: 'var(--bg-1)', border: '1px solid var(--line)', borderRadius: 8, overflow: 'hidden' }}>
+        <div style={{
+          padding: '8px 12px', background: 'var(--bg-2)', borderBottom: '1px solid var(--line)',
+          display: 'flex', alignItems: 'center', gap: 8, fontSize: 11,
+        }}>
+          <span className="mono" style={{ color: 'var(--ink-3)' }}>
+            presets/pronunciation.json {meta?.exists ? '' : '(will be created on save)'}
+          </span>
+          <div style={{ flex: 1 }}/>
+          <span className="chip" style={{
+            color: valid ? 'var(--accent)' : 'var(--err)',
+            borderColor: valid ? 'var(--accent-dim)' : 'oklch(0.7 0.2 25 / 0.3)',
+            background: valid ? 'var(--accent-dim)' : 'oklch(0.7 0.2 25 / 0.08)',
+          }}>
+            <span className="dot" style={{ background: valid ? 'var(--accent)' : 'var(--err)' }}/>
+            {valid ? 'Valid JSON' : 'Invalid JSON'}
+          </span>
+        </div>
+        <textarea
+          value={text}
+          onChange={e => setText(e.target.value)}
+          spellCheck={false}
+          style={{
+            width: '100%', minHeight: 280, padding: 14, background: 'var(--bg-1)', border: 'none',
+            fontFamily: 'var(--mono)', fontSize: 12, lineHeight: 1.6,
+            color: valid ? 'var(--ink)' : 'var(--err)', resize: 'vertical', outline: 'none',
+          }}
+        />
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+        <button onClick={save} disabled={!valid || !dirty || saving} className="btn btn-primary">
+          {I.check} {saving ? 'Saving…' : 'Save rules'}
+        </button>
+        <button onClick={revert} disabled={!dirty} className="btn">{I.refresh} Revert</button>
+        <div style={{ flex: 1 }}/>
+        {meta?.exists && (
+          <button onClick={removeFile} className="btn" style={{ color: 'var(--err)', borderColor: 'oklch(0.7 0.2 25 / 0.4)' }}>
+            {I.trash} Delete file
+          </button>
+        )}
+      </div>
+
+      {error && (
+        <div style={{ marginTop: 10, padding: 10, background: 'oklch(0.7 0.2 25 / 0.08)', border: '1px solid oklch(0.7 0.2 25 / 0.3)', borderRadius: 6, fontSize: 11.5, color: 'var(--ink-2)' }}>
+          {I.warn} {error}
+        </div>
+      )}
+
+      <div style={{ marginTop: 24, padding: 14, background: 'var(--bg-1)', border: '1px solid var(--line)', borderRadius: 8 }}>
+        <div className="caps" style={{ marginBottom: 8 }}>Format</div>
+        <div style={{ fontSize: 11.5, color: 'var(--ink-3)', lineHeight: 1.6 }}>
+          Top-level <code className="mono" style={{ color: 'var(--ink-2)' }}>rules</code> array of{' '}
+          <code className="mono" style={{ color: 'var(--ink-2)' }}>{'{ "from", "to" }'}</code>. Matching is
+          case-insensitive on word boundaries, and the longest <code className="mono" style={{ color: 'var(--ink-2)' }}>from</code> wins.
+          Example: <code className="mono" style={{ color: 'var(--ink-2)' }}>{'{ "from": "nginx", "to": "engine x" }'}</code>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Add-ons tab ─────────────────────────────────────────────────────
 function SysAddons() {
   const [lipStatus, setLipStatus] = useState(null);
@@ -3821,6 +3943,7 @@ function HomeView({ system, voicePresets, sphereOn, onJobSubmitted }) {
   const [keepBg, setKeepBg] = useState(() => _lsGet('keepBg', false));
   const [autoDenoise, setAutoDenoise] = useState(() => _lsGet('autoDenoise', false));
   const [lipSync, setLipSync] = useState(() => _lsGet('lipSync', false));
+  const [narrationMode, setNarrationMode] = useState(() => _lsGet('narrationMode', false));
   const [lipStatus, setLipStatus] = useState(null);
   useEffect(() => {
     fetch('/api/lip_sync/status').then(r => r.json()).then(setLipStatus).catch(() => {});
@@ -3853,6 +3976,7 @@ function HomeView({ system, voicePresets, sphereOn, onJobSubmitted }) {
   useEffect(() => { _lsSet('keepBg', keepBg); }, [keepBg]);
   useEffect(() => { _lsSet('autoDenoise', autoDenoise); }, [autoDenoise]);
   useEffect(() => { _lsSet('lipSync', lipSync); }, [lipSync]);
+  useEffect(() => { _lsSet('narrationMode', narrationMode); }, [narrationMode]);
   useEffect(() => { _lsSet('llmRegroup', llmRegroup); }, [llmRegroup]);
   useEffect(() => { _lsSet('wizardReview', wizardReview); }, [wizardReview]);
 
@@ -3906,6 +4030,7 @@ function HomeView({ system, voicePresets, sphereOn, onJobSubmitted }) {
     fd.append('auto_denoise', autoDenoise);
     fd.append('llm_regroup', llmRegroup);
     fd.append('lip_sync', lipSync);
+    fd.append('narration_mode', narrationMode);
     try {
       const r = await fetch('/api/dub', { method: 'POST', body: fd });
       const d = await r.json();
@@ -4209,6 +4334,9 @@ function HomeView({ system, voicePresets, sphereOn, onJobSubmitted }) {
                 hint={lipStatus && !lipStatus.installed
                   ? 'MuseTalk not detected. Install via System tab to enable.'
                   : 'Auto-runs MuseTalk after dubbing. Best for talking-head footage; fails on action shots or far-away faces. Roughly real-time on a modern GPU.'}/>
+        <Toggle value={narrationMode} onChange={setNarrationMode}
+                label="Narrator mode — one voice for the whole video"
+                hint="Skips speaker detection and reads everything in a single (cloned) voice — best for localized narration rather than matching each speaker. Uses your uploaded/preset voice when set."/>
         <Toggle value={llmRegroup}  onChange={setLlmRegroup}  label="LLM segment regrouping" hint="+20-40s on long videos · fixes mid-sentence breaks · best for podcasts, lectures, seminars"/>
         <Toggle value={wizardReview} onChange={setWizardReview} label="Wizard mode — pause for review" hint="Pause after translation so you can edit segments and replace voice references."/>
 

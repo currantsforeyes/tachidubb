@@ -15,11 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to a single voice and skips diarization, for localized narration
   (Voicer-style) rather than per-speaker dubbing. Reuses an uploaded reference
   or voice preset as the narrator; with no reference it falls back to one
-  reference built from the source. API-only for now (no UI toggle yet).
+  reference built from the source. Toggle in the Home form's Advanced section.
 - **Pronunciation overrides** (`presets/pronunciation.json` + `/api/pronunciation`):
   rewrite how a word is *spoken* (e.g. `nginx` → `engine x`) without changing
   the subtitles. Applied via a new `segment["tts_text"]` field that every TTS
-  engine prefers; `translated_text` is untouched.
+  engine prefers; `translated_text` is untouched. Editable in
+  **System → Pronunciation**.
 - `translategemma:27b` added to the translation model catalog.
 - Optional **staged translation** (`TACHIDUBB_TRANSLATION_MODE=staged`, or
   `translation_mode` in config): clean raw subtitles, translate, then adapt for
