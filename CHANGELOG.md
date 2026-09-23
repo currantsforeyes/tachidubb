@@ -78,6 +78,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it automatically. `/api/lip_sync/status` also returns a structured `probe`
   when MuseTalk isn't ready, and the worker preflights its runtime deps and
   discovers ffmpeg itself
+- `install-musetalk.bat` / `.sh` now prefer `uv venv --seed --python 3.10`, so
+  Python 3.10 is fetched into uv's local cache with **no system install**
+  (falls back to `py -3.10` / `python3.10` when uv isn't present)
 - CI `test` job, plus explicit `ruff` + `pytest` configuration in `pyproject.toml`
 
 ### Fixed

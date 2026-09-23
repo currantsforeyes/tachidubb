@@ -4,8 +4,16 @@ cd "$(dirname "$0")"
 
 echo "Installing the optional MuseTalk lip-sync backend..."
 
-if ! command -v python3.10 &>/dev/null; then
-    echo "Python 3.10 is required for MuseTalk. Install it, then rerun this script."
+# MuseTalk wants Python 3.10. Prefer `uv`, which downloads a local 3.10 with no
+# system install; otherwise fall back to an installed Python 3.10.
+if command -v uv &>/dev/null; then
+    MAKE_VENV="uv venv --seed --python 3.10"
+elif command -v python3.10 &>/dev/null; then
+    MAKE_VENV="python3.10 -m venv"
+else
+    echo "MuseTalk needs Python 3.10. Install uv (https://docs.astral.sh/uv/) —"
+    echo "it fetches a local 3.10 with no system install — or install Python 3.10,"
+    echo "then rerun this script."
     exit 1
 fi
 
@@ -14,7 +22,7 @@ if [ ! -f "MuseTalk/scripts/inference.py" ]; then
     git clone https://github.com/TMElyralab/MuseTalk.git MuseTalk
 fi
 
-[ -d musetalk-runtime ] || python3.10 -m venv musetalk-runtime
+[ -d musetalk-runtime ] || $MAKE_VENV musetalk-runtime
 PY=musetalk-runtime/bin/python
 $PY -m pip install --upgrade pip
 # MuseTalk pins an older CUDA 11.8 torch. On newer GPUs you may need a newer

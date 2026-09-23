@@ -2,11 +2,19 @@
 setlocal
 cd /d "%~dp0"
 echo Installing the optional MuseTalk lip-sync backend...
-echo This creates a project-local Python 3.10 environment and clones MuseTalk.
+echo This creates a project-local Python 3.10 environment (via uv if available) and clones MuseTalk.
 echo.
 
-py -3.10 -c "import sys" >nul 2>&1
-if errorlevel 1 goto :python_missing
+REM MuseTalk wants Python 3.10. Prefer `uv`, which downloads a local 3.10 with
+REM no system install; otherwise fall back to an installed Python 3.10.
+set "MAKE_VENV="
+where uv >nul 2>&1
+if not errorlevel 1 set "MAKE_VENV=uv venv --seed --python 3.10"
+if not defined MAKE_VENV (
+    py -3.10 -c "import sys" >nul 2>&1
+    if not errorlevel 1 set "MAKE_VENV=py -3.10 -m venv"
+)
+if not defined MAKE_VENV goto :no_python
 
 if not exist "MuseTalk\scripts\inference.py" (
     echo Cloning MuseTalk...
@@ -14,7 +22,7 @@ if not exist "MuseTalk\scripts\inference.py" (
     if errorlevel 1 goto :failed
 )
 
-if not exist "musetalk-runtime\Scripts\python.exe" py -3.10 -m venv musetalk-runtime
+if not exist "musetalk-runtime\Scripts\python.exe" %MAKE_VENV% musetalk-runtime
 if errorlevel 1 goto :failed
 set PY=musetalk-runtime\Scripts\python.exe
 %PY% -m pip install --upgrade pip
@@ -50,8 +58,10 @@ echo MuseTalk is ready. Restart TachiDUBB Studio to enable lip-sync.
 pause
 exit /b 0
 
-:python_missing
-echo Python 3.10 is required for MuseTalk. Install it, then rerun this file.
+:no_python
+echo MuseTalk needs Python 3.10. Install `uv` (https://docs.astral.sh/uv/) — it
+echo fetches a local 3.10 with no system install — or install Python 3.10,
+echo then rerun this file.
 pause
 exit /b 1
 
