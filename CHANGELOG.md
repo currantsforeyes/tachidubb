@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Narrator mode** (`narration_mode=true` on `/api/dub`): assigns every segment
+  to a single voice and skips diarization, for localized narration
+  (Voicer-style) rather than per-speaker dubbing. Reuses an uploaded reference
+  or voice preset as the narrator; with no reference it falls back to one
+  reference built from the source. API-only for now (no UI toggle yet).
 - **Pronunciation overrides** (`presets/pronunciation.json` + `/api/pronunciation`):
   rewrite how a word is *spoken* (e.g. `nginx` → `engine x`) without changing
   the subtitles. Applied via a new `segment["tts_text"]` field that every TTS

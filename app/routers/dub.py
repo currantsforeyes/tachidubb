@@ -66,6 +66,7 @@ async def start_dub(
     wizard_mode: str = Form("auto"),  # "auto" | "review_translation" | "review_transcript"
     auto_denoise: bool = Form(False),
     lip_sync: bool = Form(False),  # if True, auto-run MuseTalk after the pipeline completes
+    narration_mode: bool = Form(False),  # single narrator voice; skip diarization
 ):
     # Validate translation model exists in Ollama - fall back gracefully otherwise.
     _ok, _installed = await check_ollama()
@@ -164,6 +165,7 @@ async def start_dub(
         "tts_speed": tts_speed,
         "wizard_mode": wizard_mode,
         "lip_sync": bool(lip_sync),
+        "narration_mode": bool(narration_mode),
         "created": time.time(),
         "step_detail": "Queued...",
     }
@@ -189,6 +191,7 @@ async def start_dub(
         "tts_speed": tts_speed,
         "wizard_mode": wizard_mode,
         "auto_denoise": auto_denoise,
+        "narration_mode": bool(narration_mode),
     })
 
     return {"job_id": job_id}

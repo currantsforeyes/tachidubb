@@ -55,6 +55,13 @@ def _apply_pronunciation(segments: list) -> list:
     return segments
 
 
+def _force_single_speaker(segments: list, speaker: str = "SPEAKER_00") -> list:
+    """Assign every segment to one speaker (narrator mode)."""
+    for s in segments:
+        s["speaker"] = speaker
+    return segments
+
+
 async def run_pipeline(
     job_id: str,
     source: str,
@@ -72,6 +79,7 @@ async def run_pipeline(
     tts_speed: str = "balanced",
     wizard_mode: str = "auto",  # "auto" | "review_translation" | "review_transcript"
     auto_denoise: bool = True,  # apply ffmpeg denoise before WhisperX
+    narration_mode: bool = False,  # single narrator voice; skip diarization
 ):
     """Main dubbing pipeline. When wizard_mode != 'auto', pauses at the
     specified checkpoint with status='awaiting_review' so the user can
@@ -80,6 +88,7 @@ async def run_pipeline(
     work = OUTPUT_DIR / job_id
     work.mkdir(exist_ok=True)
     job["wizard_mode"] = wizard_mode
+    job["narration_mode"] = narration_mode
 
     # Resolve final voice config once, store on job so UI can display it
     eff_style, voice_seed, preset_ref_file = resolve_voice_config(voice_preset, voice_style, job_id)
@@ -217,17 +226,24 @@ async def run_pipeline(
         if not segments:
             raise RuntimeError("No speech detected in video")
 
-        # 4. Diarize
-        update(status="diarizing", progress=38, step_detail="Identifying speakers...")
-        hf_token = os.getenv("HF_TOKEN", "")
-        requested_speakers = speaker_count if speaker_count >= 2 else None
-        speaker_turns = diarize_speakers(
-            audio_16k,
-            min_speakers=requested_speakers,
-            max_speakers=requested_speakers,
-            hf_token=hf_token,
-        )
-        segments = assign_speakers_to_segments(segments, speaker_turns)
+        # 4. Diarize — skipped in narrator mode (one voice for everything)
+        speaker_turns = []
+        if narration_mode:
+            update(status="diarizing", progress=38,
+                   step_detail="Narrator mode: using a single voice")
+            _force_single_speaker(segments)
+        else:
+            update(status="diarizing", progress=38,
+                   step_detail="Identifying speakers...")
+            hf_token = os.getenv("HF_TOKEN", "")
+            requested_speakers = speaker_count if speaker_count >= 2 else None
+            speaker_turns = diarize_speakers(
+                audio_16k,
+                min_speakers=requested_speakers,
+                max_speakers=requested_speakers,
+                hf_token=hf_token,
+            )
+            segments = assign_speakers_to_segments(segments, speaker_turns)
 
         # Store raw transcript preview for UI
         transcript_preview_raw = [
