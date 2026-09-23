@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- GitHub **release workflow** (`.github/workflows/release.yml`): on a `v*` tag it
+  runs the test suite, then publishes a GitHub Release with a source archive and
+  `SHA256SUMS.txt` plus generated notes.
 - **Narrator mode** (`narration_mode=true` on `/api/dub`): assigns every segment
   to a single voice and skips diarization, for localized narration
   (Voicer-style) rather than per-speaker dubbing. Reuses an uploaded reference
