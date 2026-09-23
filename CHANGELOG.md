@@ -88,6 +88,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from `/static`, so the page loads with **no CDN scripts and no in-browser
   Babel** (previously it fetched the React *development* build + Babel +
   three.js from unpkg on every load)
+- UI fonts (Geist, Titillium Web, JetBrains Mono) are now **self-hosted** under
+  `static/fonts/` (one `static/fonts.css`), so the page makes no external
+  requests at all
 - CI `test` job, plus explicit `ruff` + `pytest` configuration in `pyproject.toml`
 
 ### Fixed

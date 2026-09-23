@@ -54,11 +54,20 @@ def test_index_is_served():
 def test_index_references_local_bundle():
     html = client.get("/").text
     assert "/static/dist/app.js" in html
+    assert "/static/fonts.css" in html
     assert "unpkg.com" not in html
     assert "text/babel" not in html
+    assert "fonts.googleapis" not in html
 
 
 def test_static_bundle_is_served():
     r = client.get("/static/dist/app.js")
     assert r.status_code == 200
     assert len(r.content) > 1000
+
+
+def test_self_hosted_fonts_are_served():
+    css = client.get("/static/fonts.css")
+    assert css.status_code == 200
+    assert "@font-face" in css.text
+    assert "fonts.gstatic" not in css.text
