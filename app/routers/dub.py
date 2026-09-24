@@ -36,6 +36,7 @@ from app.state import jobs, save_job
 from app.submit import create_file_job, resolve_model
 from pipeline.assembler import assemble_dubbed_audio, merge_audio_video, write_srt
 from pipeline.media import trim_video as _trim_video
+from pipeline.media import waveform_peaks as _waveform_peaks
 from pipeline.showcase import (
     load_placements as _load_placements,
     save_placements as _save_placements,
@@ -898,17 +899,23 @@ async def get_dub_timeline(job_id: str):
             continue
         placement = placement_map.get(seg.get("idx", i), {})
         rows.append({
-            "idx": seg.get("idx", i), "text": seg.get("translated_text", ""),
+            "idx": seg.get("idx", i),
+            "text": seg.get("translated_text", ""),
+            "original_text": seg.get("text", ""),
             "speaker": seg.get("speaker", "SPEAKER_00"),
             "start": float(seg.get("timeline_start", placement.get("dub_start", seg.get("start", 0.0)))),
             "source_start": float(seg.get("start", 0.0)),
             "source_end": float(seg.get("end", 0.0)),
             "duration": round(clip_duration, 4),
         })
+    dubbed_wav = OUTPUT_DIR / job_id / "dubbed_audio.wav"
+    peaks = _waveform_peaks(dubbed_wav) if dubbed_wav.exists() else []
     return {
         "duration": float(cp.get("duration", 0.0)), "segments": rows,
         "cuts": cp.get("timeline_cuts", []),
+        "peaks": peaks,
         "source_video_url": f"/outputs/{job_id}/source_video.mp4",
+        "dubbed_video_url": f"/outputs/{job_id}/dubbed_video.mp4",
         "source_audio_url": f"/outputs/{job_id}/audio_16k.wav",
         "dubbed_audio_url": f"/outputs/{job_id}/dubbed_audio.wav",
     }

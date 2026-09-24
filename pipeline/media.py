@@ -143,3 +143,37 @@ def probe_duration(path: Path) -> float:
     except Exception as e:
         log.warning(f"[probe] ffmpeg fallback failed: {type(e).__name__}: {e}")
     return 0.0
+
+
+def waveform_peaks(audio_path, buckets: int = 1200) -> list:
+    """Downsampled peak envelope for drawing a waveform: `buckets` values in 0..1.
+
+    Streams the file in blocks (so a 30-minute dub doesn't have to fit in
+    memory) and takes the max absolute sample per bucket, then normalises to
+    the loudest bucket. Returns ``[]`` if the file can't be read — the UI then
+    just draws an empty lane instead of failing.
+
+    Used by the dialogue editor's waveform lanes.
+    """
+    try:
+        import numpy as np
+        import soundfile as sf
+
+        info = sf.info(str(audio_path))
+        total = int(info.frames)
+        if total <= 0 or buckets <= 0:
+            return []
+        block = max(1, total // buckets)
+        peaks = []
+        with sf.SoundFile(str(audio_path)) as fh:
+            remaining = total
+            while remaining > 0:
+                n = min(block, remaining)
+                data = fh.read(n, dtype="float32", always_2d=True)
+                peaks.append(float(np.abs(data).max()) if data.size else 0.0)
+                remaining -= n
+        loudest = max(peaks) or 1.0
+        return [round(p / loudest, 4) for p in peaks]
+    except Exception as e:
+        log.warning(f"[waveform] peaks failed for {audio_path}: {type(e).__name__}: {e}")
+        return []

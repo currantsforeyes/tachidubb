@@ -1459,20 +1459,17 @@ function EditorView({ jobs, selectedJobId, onPickJob, onSwitchToHome }) {
   }
 
   return <div style={{ flex: 1, overflow: 'auto', background: 'var(--bg)' }}>
-    <div style={{ maxWidth: 1180, margin: '0 auto', padding: '32px 36px 52px' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 20, marginBottom: 26 }}>
-        <div style={{ flex: 1 }}>
-          <div className="caps" style={{ marginBottom: 8 }}>Dedicated timeline workspace</div>
-          <div className="serif" style={{ fontSize: 32, lineHeight: 1.05, letterSpacing: '-0.015em' }}>Dialogue <span style={{ fontStyle: 'italic', color: 'var(--ink-3)' }}>editor</span></div>
-          <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 10, lineHeight: 1.5 }}>Use the original video and audio as the reference, then place the new dubbed generations beneath it. Speaker cuts are saved with this job.</div>
+    <div style={{ padding: '18px 22px 44px' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16, marginBottom: 14, flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: 220 }}>
+          <div className="caps" style={{ marginBottom: 6 }}>Dedicated timeline workspace</div>
+          <div className="serif" style={{ fontSize: 26, lineHeight: 1.05, letterSpacing: '-0.015em' }}>Dialogue <span style={{ fontStyle: 'italic', color: 'var(--ink-3)' }}>editor</span></div>
         </div>
-        {completedJobs.length > 1 && <div style={{ width: 280, flexShrink: 0 }}><Select value={job.id} onChange={onPickJob}>
+        {completedJobs.length > 1 && <div style={{ width: 300, flexShrink: 0 }}><Select value={job.id} onChange={onPickJob}>
           {completedJobs.slice(0, 20).map(j => <option key={j.id} value={j.id} style={{ background: '#16161c' }}>{(j.source_label || j.source || j.id).slice(0, 50)} · {fmtAge(j.completed_at || j.created)}</option>)}
         </Select></div>}
       </div>
-      <div style={{ background: 'var(--bg-1)', border: '1px solid var(--line)', borderRadius: 10, padding: 20 }}>
-        <TimelinePanel job={job} onApplied={() => {}}/>
-      </div>
+      <TimelinePanel job={job} onApplied={() => {}}/>
     </div>
   </div>;
 }
@@ -1599,28 +1596,178 @@ function PresetCard({ p, active, onClick }) {
   );
 }
 
+// ── Dialogue editor — DAW-style multi-track workspace ───────────────
+// Layout follows the design mock: video + transport on top, a timecode ruler,
+// and aligned lanes (Original Text / Translated Text / one waveform lane per
+// speaker). Dragging the translated clips edits segment starts; "Apply timing"
+// persists them through /timeline.
+const ED = {
+  toStart: <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M3 3h1.6v10H3zM13 3.6v8.8L6 8z"/></svg>,
+  prev:    <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M11 3.6v8.8L4 8z"/></svg>,
+  stop:    <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><rect x="3.5" y="3.5" width="9" height="9" rx="1"/></svg>,
+  play:    <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M4 3l9 5-9 5z"/></svg>,
+  pause:   <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><rect x="3.5" y="3" width="3.4" height="10" rx="1"/><rect x="9.1" y="3" width="3.4" height="10" rx="1"/></svg>,
+  next:    <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M5 3.6v8.8L12 8z"/></svg>,
+  toEnd:   <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M11.4 3h1.6v10h-1.6zM5 3.6v8.8L12 8z"/></svg>,
+  pointer: <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M4 2.5l8 6.2-3.4.5 1.9 3.6-1.6.8-1.9-3.7L4.6 12z"/></svg>,
+  razor:   <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M3 3l10 10M3 13L13 3"/><circle cx="4.6" cy="4.6" r="1.6"/><circle cx="11.4" cy="11.4" r="1.6"/></svg>,
+  link:    <svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4"><path d="M6.5 9.5l3-3M4.6 11.4L3.4 12.6a2 2 0 01-2.8-2.8l1.2-1.2M11.4 4.6l1.2-1.2a2 2 0 012.8 2.8l-1.2 1.2"/></svg>,
+  volume:  <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M3 6h2l3-2.6v9.2L5 10H3z"/><path d="M10.6 6.2a2.6 2.6 0 010 3.6" fill="none" stroke="currentColor" strokeWidth="1.3"/></svg>,
+  dim:     <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M3 6h2l3-2.6v9.2L5 10H3z"/><path d="M10 6.5l4 3M14 6.5l-4 3" fill="none" stroke="currentColor" strokeWidth="1.3"/></svg>,
+};
+
+// HH:MM:SS:FF — the mock's big timecode readout (30 fps nominal).
+const fmtTimecode = (s, fps = 30) => {
+  const v = Math.max(0, s || 0);
+  const p = n => String(Math.floor(n)).padStart(2, '0');
+  return `${p(v / 3600)}:${p((v % 3600) / 60)}:${p(v % 60)}:${p((v - Math.floor(v)) * fps)}`;
+};
+
+// "SPEAKER_00" -> "Speaker 1"
+const niceSpeaker = (spk) => {
+  const raw = String(spk || '');
+  const num = parseInt(raw.replace('SPEAKER_', ''), 10);
+  return Number.isFinite(num) ? `Speaker ${num + 1}` : (raw || 'Speaker');
+};
+
+function SMBtn({ active, onClick, label, title }) {
+  return (
+    <button onClick={onClick} title={title} style={{
+      width: 20, height: 18, borderRadius: 3, fontSize: 9, fontWeight: 600,
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      border: '1px solid ' + (active ? 'var(--accent)' : 'var(--line)'),
+      background: active ? 'var(--accent)' : 'var(--bg-2)',
+      color: active ? '#0a0a0d' : 'var(--ink-3)', cursor: 'pointer',
+    }}>{label}</button>
+  );
+}
+
+// Canvas waveform. `activeKey` is a JSON array of [start,end] ranges that are
+// this speaker's own clips — everything else is drawn dimmed.
+function WaveformLane({ peaks, duration, pxPerSec, height = 56, activeKey = '', dim = false }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    const cv = ref.current;
+    if (!cv) return;
+    const w = Math.max(2, Math.round(duration * pxPerSec));
+    const dpr = window.devicePixelRatio || 1;
+    cv.width = Math.round(w * dpr);
+    cv.height = Math.round(height * dpr);
+    cv.style.width = w + 'px';
+    cv.style.height = height + 'px';
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, height);
+    if (!peaks || !peaks.length) return;
+    let active = null;
+    try { active = activeKey ? JSON.parse(activeKey) : null; } catch { active = null; }
+    const mid = height / 2;
+    const step = w / peaks.length;
+    for (let i = 0; i < peaks.length; i++) {
+      const t = duration * (i / peaks.length);
+      const on = !active || active.some(r => t >= r[0] && t <= r[1]);
+      ctx.globalAlpha = (dim ? 0.14 : (on ? 0.9 : 0.22));
+      ctx.fillStyle = 'oklch(0.88 0.18 125)';
+      const h = Math.max(1, peaks[i] * mid * 0.9);
+      ctx.fillRect(i * step, mid - h, Math.max(1, step * 0.85), h * 2);
+    }
+    ctx.globalAlpha = 1;
+  }, [peaks, duration, pxPerSec, height, activeKey, dim]);
+  return <canvas ref={ref} style={{ display: 'block' }}/>;
+}
+
 function TimelinePanel({ job, onApplied }) {
   const [timeline, setTimeline] = useState(null);
   const [dragging, setDragging] = useState(null);
   const [playhead, setPlayhead] = useState(0);
+  const [playing, setPlaying] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  const [tool, setTool] = useState('select');
+  const [pxPerSec, setPxPerSec] = useState(26);
+  const [speed, setSpeed] = useState(1);
+  const [volume, setVolume] = useState(1);
+  const [solo, setSolo] = useState(null);
+  const [muted, setMuted] = useState({});
+  const [videoMode, setVideoMode] = useState('dubbed');
   const railRef = useRef(null);
   const videoRef = useRef(null);
 
   useEffect(() => {
     let live = true;
+    setTimeline(null); setError(null); setPlayhead(0);
     fetch(`/api/dub/${job.id}/timeline`).then(r => r.json()).then(d => {
       if (live) { if (d.error) setError(d.error); else setTimeline(d); }
     }).catch(e => live && setError(String(e)));
     return () => { live = false; };
   }, [job.id]);
 
-  const move = (event, idx) => {
-    const rail = railRef.current;
-    if (!rail || !timeline) return;
+  const duration = timeline ? Math.max(timeline.duration || 1, 1) : 1;
+  const totalWidth = Math.max(320, Math.round(duration * pxPerSec));
+
+  const speakers = useMemo(() => {
+    if (!timeline) return [];
+    return [...new Set(timeline.segments.map(s => s.speaker || 'SPEAKER_00'))].sort();
+  }, [timeline]);
+
+  const segsBySpeaker = useMemo(() => {
+    const m = {};
+    (timeline?.segments || []).forEach(s => {
+      const k = s.speaker || 'SPEAKER_00';
+      (m[k] = m[k] || []).push(s);
+    });
+    return m;
+  }, [timeline]);
+
+  const ticks = useMemo(() => {
+    const steps = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
+    const step = steps.find(s => s * pxPerSec >= 74) || 600;
+    const out = [];
+    for (let i = 0; i * step <= duration + 1e-6; i++) out.push(i * step);
+    return out;
+  }, [duration, pxPerSec]);
+
+  useEffect(() => { if (videoRef.current) videoRef.current.playbackRate = speed; }, [speed, timeline]);
+  useEffect(() => { if (videoRef.current) videoRef.current.volume = volume; }, [volume, timeline]);
+
+  const videoSrc = timeline
+    ? ((videoMode === 'dubbed' && timeline.dubbed_video_url) ? timeline.dubbed_video_url : timeline.source_video_url)
+    : '';
+  const videoName = videoMode === 'dubbed' ? 'dubbed_video.mp4' : 'source_video.mp4';
+
+  const seekTo = (t) => {
+    const c = Math.max(0, Math.min(duration, t));
+    setPlayhead(c);
+    if (videoRef.current) videoRef.current.currentTime = c;
+  };
+  const togglePlay = () => {
+    const v = videoRef.current; if (!v) return;
+    if (v.paused) v.play().catch(() => {}); else v.pause();
+  };
+  const stopPlayback = () => {
+    const v = videoRef.current; if (v) { v.pause(); v.currentTime = 0; }
+    setPlayhead(0);
+  };
+  const stepSegment = (dir) => {
+    if (!timeline) return;
+    const starts = timeline.segments.map(s => s.start).sort((a, b) => a - b);
+    const t = videoRef.current ? videoRef.current.currentTime : playhead;
+    if (dir < 0) {
+      const prev = [...starts].reverse().find(x => x < t - 0.05);
+      seekTo(prev === undefined ? 0 : prev);
+    } else {
+      const next = starts.find(x => x > t + 0.05);
+      seekTo(next === undefined ? duration : next);
+    }
+  };
+
+  const timeFromEvent = (clientX) => {
+    const rail = railRef.current; if (!rail) return 0;
     const rect = rail.getBoundingClientRect();
-    const start = Math.max(0, Math.min(timeline.duration, (event.clientX - rect.left) / rect.width * timeline.duration));
+    return Math.max(0, Math.min(duration, (clientX - rect.left) / pxPerSec));
+  };
+  const move = (event, idx) => {
+    const start = timeFromEvent(event.clientX);
     setTimeline(t => ({ ...t, segments: t.segments.map(s => s.idx === idx ? { ...s, start } : s) }));
   };
   const apply = async () => {
@@ -1636,36 +1783,221 @@ function TimelinePanel({ job, onApplied }) {
       onApplied();
     } catch (e) { setError(e.message); } finally { setSaving(false); }
   };
-  if (!timeline) return <div className="mono" style={{ fontSize: 11, color: 'var(--ink-3)', padding: '10px 0' }}>{error || 'Loading audio clips…'}</div>;
-  const duration = Math.max(timeline.duration || 1, 1);
-  const seek = event => {
-    const r = railRef.current.getBoundingClientRect();
-    const time = Math.max(0, Math.min(duration, (event.clientX-r.left)/r.width*duration));
-    setPlayhead(time); if (videoRef.current) videoRef.current.currentTime = time;
-  };
-  const addCut = () => setTimeline(t => ({...t, cuts: [...new Set([...(t.cuts || []), Number(playhead.toFixed(3))])].sort((a,b)=>a-b)}));
-  const removeCut = cut => setTimeline(t => ({...t, cuts: (t.cuts || []).filter(x => x !== cut)}));
-  return <div>
-    <div className="mono" style={{ fontSize: 10, color: 'var(--ink-3)', marginBottom: 10 }}>Original picture and audio are the reference. Drag dubbed clips; add cut markers at speaker changes.</div>
-    <video ref={videoRef} src={timeline.source_video_url} controls onTimeUpdate={e=>setPlayhead(e.currentTarget.currentTime)} style={{ width:'100%', maxHeight:300, background:'#000', borderRadius:6, marginBottom:10 }}/>
-    <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:10 }}><button className="btn" onClick={addCut}>Add speaker cut at {fmtSec(playhead)}</button><span className="mono" style={{fontSize:10,color:'var(--ink-3)'}}>Cuts: {(timeline.cuts||[]).map(c=>fmtSec(c)).join(', ') || 'none'}</span></div>
-    <div ref={railRef} onPointerDown={e=>{ if(e.target===e.currentTarget) seek(e); }} style={{ height: Math.max(130, timeline.segments.length * 34 + 66), position: 'relative', background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: 6, overflow: 'hidden', touchAction: 'none' }}>
-      <div style={{position:'absolute',top:8,left:8,fontSize:10,color:'var(--ink-3)'}}>SOURCE VIDEO / ORIGINAL AUDIO</div><div style={{position:'absolute',top:31,left:0,right:0,height:1,background:'var(--line-2)'}}/>
-      <div style={{position:'absolute',top:40,left:8,fontSize:10,color:'var(--accent)'}}>DUBBED GENERATIONS</div>
-      {(timeline.cuts||[]).map(c=><div key={c} onClick={()=>removeCut(c)} title="Click to remove cut" style={{position:'absolute',left:`${c/duration*100}%`,top:0,bottom:0,width:2,background:'var(--warn)',cursor:'pointer'}}/>)}
-      <div style={{position:'absolute',left:`${playhead/duration*100}%`,top:0,bottom:0,width:2,background:'var(--err)',zIndex:4,pointerEvents:'none'}}/>
-      {timeline.segments.map((s, row) => {
-        const left = s.start / duration * 100, width = Math.max(2, s.duration / duration * 100), original = s.source_start / duration * 100;
-        return <div key={s.idx} style={{ position: 'absolute', top: row * 34 + 60, left: 0, right: 0, height: 26 }}>
-          <div style={{ position: 'absolute', left: `${original}%`, top: 0, bottom: 0, width: 1, background: 'var(--ink-4)' }}/>
-          <div onPointerDown={e => { e.currentTarget.setPointerCapture(e.pointerId); setDragging(s.idx); move(e, s.idx); }} onPointerMove={e => dragging === s.idx && move(e, s.idx)} onPointerUp={e => { setDragging(null); e.currentTarget.releasePointerCapture(e.pointerId); }} style={{ position: 'absolute', left: `${left}%`, width: `${width}%`, minWidth: 28, height: 28, borderRadius: 4, cursor: 'ew-resize', background: 'var(--accent-dim)', border: '1px solid var(--accent)', color: 'var(--ink)', padding: '5px 7px', overflow: 'hidden', whiteSpace: 'nowrap', fontSize: 10 }} title={s.text}>{s.idx + 1} · {s.speaker} · {fmtSec(s.start)}</div>
-        </div>;
-      })}
+  const addCutAt = (t) => setTimeline(x => ({
+    ...x, cuts: [...new Set([...(x.cuts || []), Number(t.toFixed(3))])].sort((a, b) => a - b),
+  }));
+  const removeCut = (c) => setTimeline(x => ({ ...x, cuts: (x.cuts || []).filter(v => v !== c) }));
+
+  if (!timeline) {
+    return <div className="mono" style={{ fontSize: 11, color: 'var(--ink-3)', padding: '10px 0' }}>{error || 'Loading clips…'}</div>;
+  }
+
+  const RULER_H = 26, TEXT_H = 30, TR_H = 36, SPK_H = 76;
+  const rowStyle = (h) => ({ position: 'relative', height: h, width: totalWidth, borderBottom: '1px solid var(--line)' });
+  const headerRow = (h, children) => ({ height: h, borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', padding: '0 10px', minWidth: 0 });
+
+  const transportBtn = (label, onClick, extra) => (
+    <button onClick={onClick} title={extra} style={{
+      width: 30, height: 26, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      borderRadius: 4, border: '1px solid var(--line)', background: 'var(--bg-2)', color: 'var(--ink-2)',
+      cursor: 'pointer',
+    }}>{label}</button>
+  );
+
+  return (
+    <div>
+      {/* ── Video + transport ── */}
+      <div style={{ display: 'flex', gap: 10, alignItems: 'stretch', marginBottom: 10 }}>
+        <div style={{ flex: 1, minWidth: 0, background: '#000', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--line)' }}>
+          <video
+            ref={videoRef}
+            src={videoSrc}
+            onTimeUpdate={e => setPlayhead(e.currentTarget.currentTime)}
+            onPlay={() => setPlaying(true)}
+            onPause={() => setPlaying(false)}
+            onError={() => videoMode === 'dubbed' && setVideoMode('original')}
+            style={{ width: '100%', maxHeight: 340, display: 'block', background: '#000' }}
+          />
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center', marginBottom: 8 }}>
+        {transportBtn(ED.toStart, () => seekTo(0), 'Go to start')}
+        {transportBtn(ED.prev, () => stepSegment(-1), 'Previous clip')}
+        {transportBtn(ED.stop, stopPlayback, 'Stop')}
+        <button onClick={togglePlay} title={playing ? 'Pause' : 'Play'} style={{
+          width: 44, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          borderRadius: 4, border: '1px solid var(--accent)', background: 'var(--accent-dim)', color: 'var(--accent)', cursor: 'pointer',
+        }}>{playing ? ED.pause : ED.play}</button>
+        {transportBtn(ED.next, () => stepSegment(1), 'Next clip')}
+        {transportBtn(ED.toEnd, () => seekTo(duration), 'Go to end')}
+        <div style={{ width: 14 }}/>
+        <button className="btn-ghost" onClick={() => setVideoMode(m => m === 'dubbed' ? 'original' : 'dubbed')}
+          style={{ fontSize: 11, color: 'var(--ink-3)', border: '1px solid var(--line)', borderRadius: 4, padding: '4px 8px' }}>
+          {videoMode === 'dubbed' ? 'Dubbed' : 'Original'} video
+        </button>
+      </div>
+
+      {/* ── Tools / zoom / speed / volume ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {[['select', ED.pointer, 'Select — drag clips'], ['razor', ED.razor, 'Cut — click a lane to split']].map(([id, ic, hint]) => (
+            <button key={id} title={hint} onClick={() => setTool(id)} style={{
+              width: 28, height: 24, borderRadius: 4, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              border: '1px solid ' + (tool === id ? 'var(--accent)' : 'var(--line)'),
+              background: tool === id ? 'var(--accent-dim)' : 'var(--bg-2)',
+              color: tool === id ? 'var(--accent)' : 'var(--ink-3)', cursor: 'pointer',
+            }}>{ic}</button>
+          ))}
+        </div>
+        <button className="btn-ghost" onClick={() => addCutAt(playhead)} style={{ fontSize: 11, color: 'var(--ink-3)', border: '1px solid var(--line)', borderRadius: 4, padding: '4px 8px' }}>
+          Cut at {fmtSec(playhead)}
+        </button>
+        <div style={{ flex: 1 }}/>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span className="caps">Zoom</span>
+          <button className="btn-ghost" onClick={() => setPxPerSec(z => Math.max(6, Math.round(z / 1.5)))} style={{ color: 'var(--ink-3)', padding: 0 }}>−</button>
+          <input type="range" min="6" max="220" value={pxPerSec} onChange={e => setPxPerSec(Number(e.target.value))} style={{ width: 90 }}/>
+          <button className="btn-ghost" onClick={() => setPxPerSec(z => Math.min(220, Math.round(z * 1.5)))} style={{ color: 'var(--ink-3)', padding: 0 }}>+</button>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span className="caps">Speed</span>
+          <select value={speed} onChange={e => setSpeed(Number(e.target.value))} style={{ background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: 4, padding: '3px 6px', fontSize: 11, color: 'var(--ink-2)' }}>
+            {[0.5, 0.75, 1, 1.25, 1.5, 2].map(v => <option key={v} value={v}>{v}×</option>)}
+          </select>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button className="btn-ghost" title="Mute" onClick={() => setVolume(v => v > 0 ? 0 : 1)} style={{ color: volume > 0 ? 'var(--ink-3)' : 'var(--err)', padding: 0 }}>
+            {volume > 0 ? ED.volume : ED.dim}
+          </button>
+          <input type="range" min="0" max="1" step="0.02" value={volume} onChange={e => setVolume(Number(e.target.value))} style={{ width: 70 }}/>
+        </div>
+      </div>
+
+      {/* ── Track grid ── */}
+      <div style={{ display: 'flex', border: '1px solid var(--line)', borderRadius: 8, overflow: 'hidden', background: 'var(--bg-1)' }}>
+        {/* Header column */}
+        <div style={{ width: 208, flexShrink: 0, borderRight: '1px solid var(--line)', background: 'var(--bg-1)' }}>
+          <div style={{ ...headerRow(RULER_H), justifyContent: 'flex-start' }}>
+            <span className="mono" style={{ fontSize: 17, color: 'var(--ink)', letterSpacing: '-0.02em' }}>{fmtTimecode(playhead)}</span>
+          </div>
+          <div style={{ ...headerRow(TEXT_H), fontSize: 11.5, color: 'var(--ink-3)' }}>Original Text</div>
+          <div style={{ ...headerRow(TR_H), fontSize: 11.5, color: 'var(--ink-2)' }}>Translated Text</div>
+          {speakers.map(spk => {
+            const segs = segsBySpeaker[spk] || [];
+            return (
+              <div key={spk} style={{ height: SPK_H, borderBottom: '1px solid var(--line)', padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  <SMBtn active={solo === spk} onClick={() => setSolo(solo === spk ? null : spk)} label="S" title="Solo — highlight this speaker"/>
+                  <SMBtn active={!!muted[spk]} onClick={() => setMuted(m => ({ ...m, [spk]: !m[spk] }))} label="M" title="Mute — dim this speaker"/>
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 11.5, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{niceSpeaker(spk)}</div>
+                  <div className="mono" style={{ fontSize: 9, color: 'var(--ink-4)' }}>{segs.length} clip{segs.length === 1 ? '' : 's'}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Lanes (horizontally scrollable) */}
+        <div className="scroll" style={{ flex: 1, overflowX: 'auto', overflowY: 'hidden', minWidth: 0 }}>
+          <div ref={railRef} style={{ position: 'relative', width: totalWidth }}>
+            {/* Ruler */}
+            <div
+              onPointerDown={e => { if (tool === 'select') seekTo(timeFromEvent(e.clientX)); }}
+              style={{ ...rowStyle(RULER_H), background: 'var(--bg-2)', cursor: 'text' }}
+            >
+              {ticks.map((t, i) => (
+                <div key={i} style={{ position: 'absolute', left: t * pxPerSec, top: 0, bottom: 0, borderLeft: '1px solid var(--line-2)' }}>
+                  <span className="mono" style={{ position: 'absolute', left: 4, top: 6, fontSize: 9, color: 'var(--ink-4)', whiteSpace: 'nowrap' }}>{fmtSec(t)}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Original Text lane */}
+            <div style={rowStyle(TEXT_H)}>
+              {timeline.segments.map(s => {
+                const a = s.source_start, b = s.source_end;
+                const left = a * pxPerSec, w = Math.max(6, (b - a) * pxPerSec - 2);
+                return (
+                  <div key={'o' + s.idx} title={s.original_text} style={{
+                    position: 'absolute', left, width: w, top: 4, height: TEXT_H - 8,
+                    background: 'var(--bg-3)', border: '1px solid var(--line-2)', borderRadius: 3,
+                    fontSize: 10, color: 'var(--ink-3)', padding: '3px 6px', overflow: 'hidden', whiteSpace: 'nowrap',
+                  }}>{s.original_text}</div>
+                );
+              })}
+            </div>
+
+            {/* Translated Text lane (draggable clips) */}
+            <div style={rowStyle(TR_H)}>
+              {timeline.segments.map(s => {
+                const left = s.start * pxPerSec, w = Math.max(10, s.duration * pxPerSec - 2);
+                return (
+                  <div key={'t' + s.idx} title={s.text}
+                    onPointerDown={e => { if (tool === 'razor') { addCutAt(timeFromEvent(e.clientX)); return; } e.currentTarget.setPointerCapture(e.pointerId); setDragging(s.idx); move(e, s.idx); }}
+                    onPointerMove={e => dragging === s.idx && move(e, s.idx)}
+                    onPointerUp={e => { if (dragging === s.idx) { e.currentTarget.releasePointerCapture(e.pointerId); setDragging(null); } }}
+                    style={{
+                      position: 'absolute', left, width: w, top: 3, height: TR_H - 6,
+                      borderRadius: 4, cursor: tool === 'razor' ? 'crosshair' : 'ew-resize',
+                      background: 'var(--accent-dim)', border: '1px solid var(--accent)', color: 'var(--ink)',
+                      fontSize: 10, padding: '4px 6px', overflow: 'hidden', whiteSpace: 'nowrap',
+                    }}>{s.text}</div>
+                );
+              })}
+            </div>
+
+            {/* Speaker waveform lanes */}
+            {speakers.map(spk => {
+              const segs = segsBySpeaker[spk] || [];
+              const a = segs.length ? Math.min(...segs.map(s => s.start)) : 0;
+              const b = segs.length ? Math.max(...segs.map(s => s.start + s.duration)) : 0;
+              const activeRanges = JSON.stringify(segs.map(s => [s.start, s.start + s.duration]));
+              const dim = !!solo && solo !== spk;
+              return (
+                <div key={spk}
+                  onPointerDown={e => { if (tool === 'razor') addCutAt(timeFromEvent(e.clientX)); }}
+                  style={{ ...rowStyle(SPK_H), cursor: tool === 'razor' ? 'crosshair' : 'default', opacity: muted[spk] ? 0.4 : 1 }}
+                >
+                  <div style={{ position: 'absolute', left: 0, top: 2 }}>
+                    <WaveformLane peaks={timeline.peaks} duration={duration} pxPerSec={pxPerSec} height={SPK_H - 8} activeKey={activeRanges} dim={dim}/>
+                  </div>
+                  {segs.length > 0 && (
+                    <div style={{
+                      position: 'absolute', left: a * pxPerSec, top: SPK_H - 22, width: Math.max(46, (b - a) * pxPerSec),
+                      height: 16, background: 'var(--bg-2)', border: '1px solid var(--line-2)', borderRadius: 3,
+                      fontSize: 9, color: 'var(--ink-2)', display: 'flex', alignItems: 'center', gap: 4,
+                      padding: '0 5px', overflow: 'hidden', whiteSpace: 'nowrap',
+                    }}>{ED.link} {videoName} · {fmtSec(b - a)}</div>
+                  )}
+                </div>
+              );
+            })}
+
+            {/* Cuts + playhead overlay */}
+            {(timeline.cuts || []).map(c => (
+              <div key={'c' + c} onClick={() => removeCut(c)} title={'Cut at ' + fmtSec(c) + ' — click to remove'} style={{
+                position: 'absolute', left: c * pxPerSec, top: 0, bottom: 0, width: 2, background: 'var(--warn)', cursor: 'pointer', zIndex: 4,
+              }}/>
+            ))}
+            <div style={{ position: 'absolute', left: playhead * pxPerSec, top: 0, bottom: 0, width: 2, background: 'var(--err)', zIndex: 5, pointerEvents: 'none' }}/>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 10 }}>
+        <button className="btn btn-primary" disabled={saving} onClick={apply}>{saving ? 'Rebuilding timing…' : 'Apply timing to video'}</button>
+        <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}>
+          Cuts: {(timeline.cuts || []).map(c => fmtSec(c)).join(', ') || 'none'}
+        </span>
+        <div style={{ flex: 1 }}/>
+        <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}>{timeline.segments.length} segments · {speakers.length} speakers</span>
+      </div>
+      {error && <div style={{ color: 'var(--err)', fontSize: 11, marginTop: 10 }}>{error}</div>}
     </div>
-    <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 5 }} className="mono"><span style={{ fontSize: 10, color: 'var(--ink-4)' }}>0:00</span><span style={{ fontSize: 10, color: 'var(--ink-4)' }}>{fmtSec(duration)}</span></div>
-    {error && <div style={{ color: 'var(--err)', fontSize: 11, marginTop: 10 }}>{error}</div>}
-    <button className="btn btn-primary" disabled={saving} onClick={apply} style={{ marginTop: 12 }}>{saving ? 'Rebuilding timing…' : 'Apply timing to video'}</button>
-  </div>;
+  );
 }
 
 // ── Expandable panel chrome ─────────────────────────────────────────

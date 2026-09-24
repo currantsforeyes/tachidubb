@@ -26,6 +26,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CLI example for `--narrator` in the README.
 - CI now rebuilds the frontend and fails if the committed
   `static/dist/app.js` is stale (guards against source/bundle drift).
+- **Dialogue editor redrawn as a DAW-style workspace** (matching the design
+  mock): video preview with a custom transport bar (start / prev / stop /
+  play / next / end, Dubbed↔Original toggle), an HH:MM:SS:FF timecode readout,
+  a timecode ruler, aligned lanes for **Original Text**, **Translated Text**
+  (draggable clips), and one **waveform lane per speaker** with solo/mute,
+  plus zoom, playback speed and volume controls and select/razor tools.
+
+### Changed
+- `GET /api/dub/{id}/timeline` now also returns per-segment `original_text`
+  (for the Original Text lane), `dubbed_video_url`, and `peaks` — a downsampled
+  waveform envelope of `dubbed_audio.wav` (`pipeline.media.waveform_peaks`).
+  The editor page is now full-bleed instead of a centred card.
 
 ### Docs
 - `docs/PACKAGING.md`: what we ship and why (source + installer, tag-triggered
@@ -86,6 +98,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   start/stop. `tests/test_submit.py` (6) covers `create_file_job`/`resolve_model`
   and `tests/test_batch_route.py` (2) pins the batch job shape after the
   refactor.
+- `tests/test_waveform_peaks.py` (4) and `tests/test_timeline_route.py` (2)
+  cover the editor's waveform envelope and the new `/timeline` fields.
 
 ## [0.3.0] - 2026-09-23
 
