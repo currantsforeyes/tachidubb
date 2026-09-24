@@ -909,7 +909,7 @@ async def get_dub_timeline(job_id: str):
             "idx": seg.get("idx", i),
             "text": seg.get("translated_text", ""),
             "original_text": seg.get("text", ""),
-            "speaker": seg.get("speaker", "SPEAKER_00"),
+            "speaker": seg.get("speaker") or "SPEAKER_00",
             "start": float(seg.get("timeline_start", placement.get("dub_start", seg.get("start", 0.0)))),
             "source_start": float(seg.get("start", 0.0)),
             "source_end": float(seg.get("end", 0.0)),
@@ -1058,6 +1058,29 @@ async def regenerate_segment(
     return {"ok": True, "job_id": job_id, "seg_idx": seg_idx}
 
 
+def _segments_with_placements(job_id: str, cp: dict) -> list:
+    """Checkpoint segments annotated with their recorded dub placement.
+
+    On a normal run the tts_done checkpoint is written *before* audio assembly,
+    so it carries no placed_start/placed_end — those live in
+    tts_placements.json. Merge them in (on copies, so the checkpoint is never
+    rewritten) so stems land where the dialogue actually is. A user-dragged
+    timeline_start still wins downstream.
+    """
+    placement_map = {row.get("idx"): row for row in _load_placements(OUTPUT_DIR / job_id)}
+    out = []
+    for i, seg in enumerate(cp.get("segments", [])):
+        s = dict(seg)
+        row = placement_map.get(s.get("idx", i))
+        if row:
+            if s.get("placed_start") is None:
+                s["placed_start"] = row.get("dub_start")
+            if s.get("placed_end") is None:
+                s["placed_end"] = row.get("dub_end")
+        out.append(s)
+    return out
+
+
 @router.get("/api/dub/{job_id}/stems")
 async def list_speaker_stems(job_id: str):
     """List per-speaker audio stems for the dialogue editor (solo/mute).
@@ -1069,7 +1092,7 @@ async def list_speaker_stems(job_id: str):
     cp = _load_checkpoint(job_id, "tts_done")
     if not cp:
         return JSONResponse({"error": "Stems require a completed TTS pass"}, 404)
-    segs = cp.get("segments", [])
+    segs = _segments_with_placements(job_id, cp)
     work = OUTPUT_DIR / job_id
     return {
         "job_id": job_id,
@@ -1095,7 +1118,7 @@ async def get_speaker_stem(job_id: str, speaker: str):
     cp = _load_checkpoint(job_id, "tts_done")
     if not cp:
         return JSONResponse({"error": "Stems require a completed TTS pass"}, 404)
-    segs = cp.get("segments", [])
+    segs = _segments_with_placements(job_id, cp)
     if speaker not in speakers_in_segments(segs):
         return JSONResponse({"error": f"No audio for speaker {speaker}"}, 404)
 

@@ -397,7 +397,7 @@ def speakers_in_segments(segments) -> list:
     for seg in segments or []:
         path = seg.get("audio_path")
         if path and os.path.exists(path):
-            found.add(seg.get("speaker", "SPEAKER_00"))
+            found.add(seg.get("speaker") or "SPEAKER_00")
     return sorted(found)
 
 
@@ -416,7 +416,7 @@ def assemble_speaker_stems(segments, total_duration, out_dir, sample_rate=48000,
     out_dir.mkdir(parents=True, exist_ok=True)
     paths = {}
     for spk in ([only] if only else speakers_in_segments(segments)):
-        subset = [s for s in segments if s.get("speaker", "SPEAKER_00") == spk]
+        subset = [s for s in segments if (s.get("speaker") or "SPEAKER_00") == spk]
         out = out_dir / f"stem_{spk}.wav"
         assemble_dubbed_audio(
             subset, total_duration, str(out),

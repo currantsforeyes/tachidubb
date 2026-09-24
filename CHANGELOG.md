@@ -34,10 +34,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   plus zoom, playback speed and volume controls and select/razor tools.
 - **Per-speaker audio stems** (`/api/dub/{id}/stems`, `…/stem/{speaker}/audio`):
   each speaker's clips laid onto a full-length track, built from the placement
-  the pipeline already recorded — no re-synthesis. The editor's **S / M**
-  buttons now drive a real stem mixer (video muted while it's on), so solo and
-  mute are audible instead of decorative. Stems are rendered on first request
-  and cached next to the job.
+  already recorded in `tts_placements.json` (merged in, since a normal run
+  writes the `tts_done` checkpoint *before* assembly) — no re-synthesis, so
+  existing jobs work as-is. Empty speaker ids from older single-speaker jobs
+  are normalised to `SPEAKER_00`. The editor's **S / M** buttons now drive a
+  real stem mixer (video muted while it's on), so solo and mute are audible
+  instead of decorative. Stems are rendered on first request and cached next
+  to the job.
 
 ### Changed
 - `pipeline.assembler.assemble_dubbed_audio` gained `use_recorded=` (place
@@ -112,8 +115,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `tests/test_waveform_peaks.py` (4) and `tests/test_timeline_route.py` (2)
   cover the editor's waveform envelope and the new `/timeline` fields.
 - `tests/test_stems.py` (4) checks stems place each speaker's audio in its own
-  window and honour the recorded placement; `tests/test_stem_route.py` (5)
-  covers the on-demand stem endpoints.
+  window and honour the recorded placement; `tests/test_stem_route.py` (7)
+  covers the on-demand stem endpoints, including merging placement from
+  `tts_placements.json` when the checkpoint has none, and empty-speaker
+  normalisation. Verified end-to-end against a real job on disk.
 
 ## [0.3.0] - 2026-09-23
 
