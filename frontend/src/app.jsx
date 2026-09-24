@@ -1690,12 +1690,16 @@ function TimelinePanel({ job, onApplied }) {
   const [solo, setSolo] = useState(null);
   const [muted, setMuted] = useState({});
   const [videoMode, setVideoMode] = useState('dubbed');
+  const [mixerOn, setMixerOn] = useState(false);
+  const [stemState, setStemState] = useState('idle');
+  const stemRef = useRef({});
   const railRef = useRef(null);
   const videoRef = useRef(null);
 
   useEffect(() => {
     let live = true;
     setTimeline(null); setError(null); setPlayhead(0);
+    setMixerOn(false); setStemState('idle');
     fetch(`/api/dub/${job.id}/timeline`).then(r => r.json()).then(d => {
       if (live) { if (d.error) setError(d.error); else setTimeline(d); }
     }).catch(e => live && setError(String(e)));
@@ -1729,6 +1733,87 @@ function TimelinePanel({ job, onApplied }) {
 
   useEffect(() => { if (videoRef.current) videoRef.current.playbackRate = speed; }, [speed, timeline]);
   useEffect(() => { if (videoRef.current) videoRef.current.volume = volume; }, [volume, timeline]);
+
+  // Per-speaker stems (solo / mute). Stems are derived server-side from the
+  // existing per-segment clips, so switching the mixer on costs no
+  // re-synthesis. Until it is on, the video plays its own dubbed audio and the
+  // S / M buttons are purely visual.
+  useEffect(() => {
+    return () => {
+      Object.values(stemRef.current).forEach(a => { try { a.pause(); a.src = ''; } catch {} });
+      stemRef.current = {};
+    };
+  }, [job.id]);
+
+  const enableMixer = useCallback(async () => {
+    if (mixerOn || stemState === 'loading' || !timeline || !speakers.length) return;
+    setStemState('loading');
+    const made = {};
+    try {
+      await Promise.all(speakers.map(spk => new Promise((resolve, reject) => {
+        const a = new Audio(`/api/dub/${job.id}/stem/${spk}/audio`);
+        a.preload = 'auto';
+        made[spk] = a;
+        a.addEventListener('canplaythrough', () => resolve(), { once: true });
+        a.addEventListener('error', () => reject(new Error('stem unavailable')), { once: true });
+        setTimeout(resolve, 10000);
+        a.load();
+      })));
+      stemRef.current = made;
+      const v = videoRef.current;
+      if (v) {
+        v.muted = true;
+        Object.values(made).forEach(a => { a.currentTime = v.currentTime; a.volume = 0; if (!v.paused) a.play().catch(() => {}); });
+      }
+      setMixerOn(true); setStemState('ready');
+    } catch (e) {
+      Object.values(made).forEach(a => { try { a.pause(); } catch {} });
+      setStemState('error');
+    }
+  }, [mixerOn, stemState, timeline, speakers, job.id]);
+
+  const disableMixer = () => {
+    Object.values(stemRef.current).forEach(a => { try { a.pause(); } catch {} });
+    if (videoRef.current) videoRef.current.muted = false;
+    setMixerOn(false); setSolo(null); setStemState('idle');
+  };
+
+  // Gains implement solo/mute; the video is muted while the mixer is on.
+  useEffect(() => {
+    if (!mixerOn) return;
+    speakers.forEach(spk => {
+      const a = stemRef.current[spk];
+      if (!a) return;
+      const gain = muted[spk] ? 0 : (solo && solo !== spk ? 0 : 1);
+      a.volume = Math.max(0, Math.min(1, gain * volume));
+    });
+  }, [mixerOn, solo, muted, volume, speakers]);
+
+  // Keep the stems glued to the video clock.
+  useEffect(() => {
+    if (!mixerOn) return;
+    const v = videoRef.current;
+    if (!v) return;
+    const all = () => Object.values(stemRef.current);
+    const onPlay = () => all().forEach(a => a.play().catch(() => {}));
+    const onPause = () => all().forEach(a => a.pause());
+    const onSeek = () => all().forEach(a => { try { a.currentTime = v.currentTime; } catch {} });
+    v.addEventListener('play', onPlay);
+    v.addEventListener('pause', onPause);
+    v.addEventListener('seeked', onSeek);
+    let raf = 0;
+    const tick = () => {
+      if (!v.paused) all().forEach(a => { if (Math.abs(a.currentTime - v.currentTime) > 0.15) { try { a.currentTime = v.currentTime; } catch {} } });
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      v.removeEventListener('play', onPlay);
+      v.removeEventListener('pause', onPause);
+      v.removeEventListener('seeked', onSeek);
+      cancelAnimationFrame(raf);
+    };
+  }, [mixerOn]);
 
   const videoSrc = timeline
     ? ((videoMode === 'dubbed' && timeline.dubbed_video_url) ? timeline.dubbed_video_url : timeline.source_video_url)
@@ -1853,6 +1938,17 @@ function TimelinePanel({ job, onApplied }) {
         <button className="btn-ghost" onClick={() => addCutAt(playhead)} style={{ fontSize: 11, color: 'var(--ink-3)', border: '1px solid var(--line)', borderRadius: 4, padding: '4px 8px' }}>
           Cut at {fmtSec(playhead)}
         </button>
+        <span className="mono" style={{ fontSize: 10, color: stemState === 'error' ? 'var(--err)' : 'var(--ink-4)' }}>
+          {stemState === 'loading' ? 'preparing stems...'
+            : stemState === 'error' ? 'stems unavailable - solo/mute are visual only'
+            : mixerOn ? 'stems on'
+            : 'S / M enable per-speaker audio'}
+        </span>
+        {mixerOn && (
+          <button className="btn-ghost" onClick={disableMixer} style={{ fontSize: 11, color: 'var(--ink-3)', border: '1px solid var(--line)', borderRadius: 4, padding: '4px 8px' }}>
+            Mixer off
+          </button>
+        )}
         <div style={{ flex: 1 }}/>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <span className="caps">Zoom</span>
@@ -1888,8 +1984,8 @@ function TimelinePanel({ job, onApplied }) {
             return (
               <div key={spk} style={{ height: SPK_H, borderBottom: '1px solid var(--line)', padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
                 <div style={{ display: 'flex', gap: 4 }}>
-                  <SMBtn active={solo === spk} onClick={() => setSolo(solo === spk ? null : spk)} label="S" title="Solo — highlight this speaker"/>
-                  <SMBtn active={!!muted[spk]} onClick={() => setMuted(m => ({ ...m, [spk]: !m[spk] }))} label="M" title="Mute — dim this speaker"/>
+                  <SMBtn active={solo === spk} onClick={() => { enableMixer(); setSolo(solo === spk ? null : spk); }} label="S" title="Solo — highlight this speaker"/>
+                  <SMBtn active={!!muted[spk]} onClick={() => { enableMixer(); setMuted(m => ({ ...m, [spk]: !m[spk] })); }} label="M" title="Mute — dim this speaker"/>
                 </div>
                 <div style={{ minWidth: 0 }}>
                   <div style={{ fontSize: 11.5, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{niceSpeaker(spk)}</div>

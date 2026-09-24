@@ -7,6 +7,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import shutil
 import time
 import uuid
@@ -14,7 +15,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, File, Form, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from app.checkpoints import (
     latest_checkpoint as _latest_checkpoint,
@@ -34,7 +35,13 @@ from app.pipeline import (
 from app.queue import enqueue_job
 from app.state import jobs, save_job
 from app.submit import create_file_job, resolve_model
-from pipeline.assembler import assemble_dubbed_audio, merge_audio_video, write_srt
+from pipeline.assembler import (
+    assemble_dubbed_audio,
+    assemble_speaker_stems,
+    merge_audio_video,
+    speakers_in_segments,
+    write_srt,
+)
 from pipeline.media import trim_video as _trim_video
 from pipeline.media import waveform_peaks as _waveform_peaks
 from pipeline.showcase import (
@@ -1050,3 +1057,61 @@ async def regenerate_segment(
     ))
     return {"ok": True, "job_id": job_id, "seg_idx": seg_idx}
 
+
+@router.get("/api/dub/{job_id}/stems")
+async def list_speaker_stems(job_id: str):
+    """List per-speaker audio stems for the dialogue editor (solo/mute).
+
+    Stems are derived on demand from the existing per-segment TTS clips — no
+    re-synthesis — so this just reports which speakers exist and whether their
+    WAV has already been rendered.
+    """
+    cp = _load_checkpoint(job_id, "tts_done")
+    if not cp:
+        return JSONResponse({"error": "Stems require a completed TTS pass"}, 404)
+    segs = cp.get("segments", [])
+    work = OUTPUT_DIR / job_id
+    return {
+        "job_id": job_id,
+        "stems": [
+            {
+                "speaker": spk,
+                "ready": (work / f"stem_{spk}.wav").exists(),
+                "audio_url": f"/api/dub/{job_id}/stem/{spk}/audio",
+            }
+            for spk in speakers_in_segments(segs)
+        ],
+    }
+
+
+@router.get("/api/dub/{job_id}/stem/{speaker}/audio")
+async def get_speaker_stem(job_id: str, speaker: str):
+    """Stream one speaker's full-timeline stem, rendering it on first request."""
+    if job_id not in jobs:
+        return JSONResponse({"error": "Job not found"}, 404)
+    # Strict filename validation — prevent path traversal via speaker id
+    if not re.match(r"^[A-Za-z0-9_]+$", speaker):
+        return JSONResponse({"error": "Invalid speaker id"}, 400)
+    cp = _load_checkpoint(job_id, "tts_done")
+    if not cp:
+        return JSONResponse({"error": "Stems require a completed TTS pass"}, 404)
+    segs = cp.get("segments", [])
+    if speaker not in speakers_in_segments(segs):
+        return JSONResponse({"error": f"No audio for speaker {speaker}"}, 404)
+
+    work = OUTPUT_DIR / job_id
+    path = work / f"stem_{speaker}.wav"
+    if not path.exists():
+        try:
+            duration = float(cp.get("duration", 0.0))
+            await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: assemble_speaker_stems(segs, duration, work, only=speaker),
+            )
+        except Exception as e:
+            log.warning(f"[stems] generation failed for {job_id}/{speaker}: {e}")
+            return JSONResponse({"error": f"Stem generation failed: {e}"}, 500)
+    if not path.exists():
+        return JSONResponse({"error": "Stem generation produced no file"}, 500)
+    return FileResponse(str(path), media_type="audio/wav",
+                        filename=f"stem_{speaker}.wav")

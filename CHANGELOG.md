@@ -32,8 +32,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a timecode ruler, aligned lanes for **Original Text**, **Translated Text**
   (draggable clips), and one **waveform lane per speaker** with solo/mute,
   plus zoom, playback speed and volume controls and select/razor tools.
+- **Per-speaker audio stems** (`/api/dub/{id}/stems`, `…/stem/{speaker}/audio`):
+  each speaker's clips laid onto a full-length track, built from the placement
+  the pipeline already recorded — no re-synthesis. The editor's **S / M**
+  buttons now drive a real stem mixer (video muted while it's on), so solo and
+  mute are audible instead of decorative. Stems are rendered on first request
+  and cached next to the job.
 
 ### Changed
+- `pipeline.assembler.assemble_dubbed_audio` gained `use_recorded=` (place
+  clips at the timeline_start/placed_start the pipeline already saved instead
+  of re-deriving them), and `assemble_speaker_stems()` builds one WAV per
+  speaker on top of it. Stems are deliberately not loudness-normalised, so
+  their levels stay relative to each other.
 - `GET /api/dub/{id}/timeline` now also returns per-segment `original_text`
   (for the Original Text lane), `dubbed_video_url`, and `peaks` — a downsampled
   waveform envelope of `dubbed_audio.wav` (`pipeline.media.waveform_peaks`).
@@ -100,6 +111,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   refactor.
 - `tests/test_waveform_peaks.py` (4) and `tests/test_timeline_route.py` (2)
   cover the editor's waveform envelope and the new `/timeline` fields.
+- `tests/test_stems.py` (4) checks stems place each speaker's audio in its own
+  window and honour the recorded placement; `tests/test_stem_route.py` (5)
+  covers the on-demand stem endpoints.
 
 ## [0.3.0] - 2026-09-23
 

@@ -2,6 +2,7 @@
 import logging
 import os
 import subprocess
+from pathlib import Path
 
 log = logging.getLogger("tachidubb.assembler")
 
@@ -108,8 +109,15 @@ def _atempo_stretch(wav_path: str, speed: float) -> str:
 
 def assemble_dubbed_audio(segments, total_duration, output_path,
                            sample_rate=48000, apply_loudnorm=True,
-                           fit_to_slots=False, tail_audio_path=""):
+                           fit_to_slots=False, tail_audio_path="",
+                           use_recorded=False):
     """Place each TTS segment at its original timestamp (numpy-based mix).
+
+    ``use_recorded`` re-uses the placement the pipeline already saved
+    (``timeline_start`` if the user dragged the clip, else ``placed_start``)
+    instead of re-deriving it from the running ``current_end`` cursor. That's
+    what makes per-speaker stems line up with the full mix: the stems are built
+    one speaker at a time, so the cursor would otherwise advance differently.
 
     Handling of overlong TTS segments (Russian/Spanish are often 20-30%
     longer than English):
@@ -224,7 +232,12 @@ def assemble_dubbed_audio(segments, total_duration, output_path,
             # original position instead of accumulating downstream drift.
             manual_start = seg.get("timeline_start")
             start = (float(manual_start) if manual_start is not None else seg["start"])
-            if not fit_to_slots and manual_start is None:
+            if use_recorded:
+                # Reproduce the placement the pipeline already recorded (see
+                # the docstring), instead of re-deriving it from current_end.
+                recorded = manual_start if manual_start is not None else seg.get("placed_start")
+                start = float(recorded) if recorded is not None else float(seg["start"])
+            elif not fit_to_slots and manual_start is None:
                 start = max(seg["start"], current_end)
             offset = int(start * sample_rate)
             end = min(offset + len(data), n_samples)
@@ -237,8 +250,9 @@ def assemble_dubbed_audio(segments, total_duration, output_path,
                 # (post-stretch, post-shift). Showcase reels use these to cut
                 # at real word boundaries in each language rather than at the
                 # original source timestamps where words have drifted.
-                seg["placed_start"] = float(start)
-                seg["placed_end"] = float(current_end)
+                if not use_recorded:
+                    seg["placed_start"] = float(start)
+                    seg["placed_end"] = float(current_end)
 
         except Exception as e:
             log.warning(f"Skipped segment: {e}")
@@ -375,3 +389,38 @@ def merge_audio_video(video_path, dubbed_audio_path, output_path,
                 output_path,
             ], "merge a+v")
     return output_path
+
+
+def speakers_in_segments(segments) -> list:
+    """Sorted unique speaker ids that actually have TTS audio on disk."""
+    found = set()
+    for seg in segments or []:
+        path = seg.get("audio_path")
+        if path and os.path.exists(path):
+            found.add(seg.get("speaker", "SPEAKER_00"))
+    return sorted(found)
+
+
+def assemble_speaker_stems(segments, total_duration, out_dir, sample_rate=48000, only=None) -> dict:
+    """Write one full-length WAV per speaker under ``out_dir``.
+
+    Each stem places only that speaker's clips, using the placement the
+    pipeline already recorded (:func:`assemble_dubbed_audio` with
+    ``use_recorded=True``), so the stems line up with ``dubbed_audio.wav`` and
+    summing them reproduces the dialogue. Deliberately NOT loudness-normalised
+    per stem — the editor's solo/mute would otherwise change the level balance.
+
+    Returns ``{speaker: Path}``.
+    """
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    paths = {}
+    for spk in ([only] if only else speakers_in_segments(segments)):
+        subset = [s for s in segments if s.get("speaker", "SPEAKER_00") == spk]
+        out = out_dir / f"stem_{spk}.wav"
+        assemble_dubbed_audio(
+            subset, total_duration, str(out),
+            sample_rate=sample_rate, apply_loudnorm=False, use_recorded=True,
+        )
+        paths[spk] = out
+    return paths
