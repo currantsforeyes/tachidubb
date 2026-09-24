@@ -166,7 +166,9 @@ from app.routers.lipsync import router as lipsync_router
 from app.routers.jobs import router as jobs_router
 from app.routers.dub import router as dub_router
 from app.routers.showcase import router as showcase_router
+from app.routers.watch import router as watch_router
 from app.showcase import maybe_assemble_showcase
+from app.watcher import start as start_watcher, stop as stop_watcher
 from app.queue import (
     shutdown as shutdown_queue,
     start as start_queue,
@@ -245,6 +247,9 @@ async def lifespan(app: FastAPI):
     # ensures GPU-heavy pipelines don't collide and OOM the card.
     start_queue(run_pipeline, maybe_assemble_showcase)
 
+    # Batch folder watcher — no-op unless watch_enabled / TACHIDUBB_WATCH_ENABLED.
+    start_watcher()
+
     if os.getenv("TACHIDUBB_OPEN_BROWSER", "1") == "1" and not os.getenv("DOCKER"):
         async def open_browser():
             await asyncio.sleep(1.5)
@@ -302,6 +307,7 @@ async def lifespan(app: FastAPI):
 
     # Shutdown: cancel queue worker + scheduler so they don't hang the process
     await shutdown_queue()
+    await stop_watcher()
 
 
 app = FastAPI(title="TachiDUBB Studio", version="2.2.0", lifespan=lifespan)
@@ -316,6 +322,7 @@ app.include_router(lipsync_router)
 app.include_router(jobs_router)
 app.include_router(dub_router)
 app.include_router(showcase_router)
+app.include_router(watch_router)
 
 
 @app.get("/")

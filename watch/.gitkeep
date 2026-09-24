@@ -1,0 +1,5 @@
+# Drop video files here to have them auto-dubbed (opt-in).
+#
+# Enable with TACHIDUBB_WATCH_ENABLED=1 (or watch_enabled in config-user.json),
+# then start the server and copy videos into this folder. Finished files are
+# moved to ./processed/. See docs or README "Folder watcher".

@@ -291,6 +291,47 @@ OLLAMA_URL=http://localhost:11434
 # UI behavior
 TACHIDUBB_OPEN_BROWSER=1           # 0 to disable auto-open
 TACHIDUBB_QA_THRESHOLD=0.4         # stricter (lower) = more re-rolls on bad TTS
+
+# Folder watcher (see below) — auto-dub videos dropped in a folder
+# TACHIDUBB_WATCH_ENABLED=1
+# TACHIDUBB_WATCH_DIR=              # default: <repo>/watch
+# TACHIDUBB_WATCH_TARGET_LANG=ru
+# TACHIDUBB_WATCH_MODEL=            # default: translation_model
+# TACHIDUBB_WATCH_POLL_SECONDS=20
+```
+
+### Folder watcher
+
+Drop videos into the `watch/` folder and TachiDUBB dubs them on its own — useful
+for "dump tonight's recordings here" or syncing a folder from another machine.
+It's **off by default**; enable it with `TACHIDUBB_WATCH_ENABLED=1` (or
+`watch_enabled` in `config-user.json`, or `POST /api/watch/enable`).
+
+```bash
+TACHIDUBB_WATCH_ENABLED=1
+TACHIDUBB_WATCH_TARGET_LANG=fr     # what to dub into
+TACHIDUBB_WATCH_DIR=/mnt/incoming  # default: <repo>/watch
+```
+
+How it behaves:
+
+- Polls every `watch_poll_seconds` (default 20s) for video files.
+- Skips anything that looks half-copied — the file's mtime must be ≥5s old, and
+  `.part` / `.crdownload` / `.tmp` / hidden files are ignored — so a large file
+  still being written is never enqueued mid-transfer.
+- Each finished file becomes a normal dub job (same shape as a batch upload, so
+  it shows up in History and the batch dashboard under the `watch` batch), then
+  is **moved** to `watch/processed/` so it's never dubbed twice. Identical
+  filenames are kept side by side with a timestamp suffix.
+- Jobs run through the same serial GPU queue — the watcher never touches the GPU
+  itself. If Ollama isn't reachable (no usable translation model), files are
+  left in place and retried on the next scan.
+
+Check state from the CLI or shell:
+
+```bash
+curl localhost:8910/api/watch/status     # enabled, running, pending, history
+curl -X POST localhost:8910/api/watch/scan   # scan once right now
 ```
 
 ### Optional dependencies
@@ -536,7 +577,7 @@ container image.
 - [x] Subtitle burn-in with live style preview (Subs panel + platform export presets that burn subs)
 - [ ] Speaker labelling UI (assign names to detected speakers)
 - [ ] Browser-only mode (no Ollama dependency, use llama.cpp WASM)
-- [ ] Batch processing folder watcher
+- [x] Batch processing folder watcher (drop videos in `watch/` — see [Folder watcher](#folder-watcher))
 - [ ] Docker image with everything pre-baked (requirements catalogued in [docs/PACKAGING.md](docs/PACKAGING.md))
 - [ ] Hardware-accelerated diarization (NVIDIA NeMo)
 - [ ] Apple Silicon MLX backend

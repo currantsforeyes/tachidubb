@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Folder watcher** (`app/watcher.py` + `/api/watch/*`): with
+  `TACHIDUBB_WATCH_ENABLED=1`, videos dropped into `watch/` are auto-dubbed and
+  moved to `watch/processed/`. Skips half-copied files (mtime grace + `.part`
+  style suffixes), leaves files in place when no translation model is available,
+  and runs everything through the normal serial queue. `GET /api/watch/status`,
+  `POST /api/watch/scan`, `POST /api/watch/enable`; settings in `UserConfig`
+  (`watch_enabled`, `watch_dir`, `watch_target_lang`, `watch_model`,
+  `watch_poll_seconds`).
+- `app/submit.py`: `create_file_job` + `resolve_model`, now shared by
+  `/api/dub/batch`'s file branch and the watcher so both produce the same job
+  shape (and the batch route's duplicated model-fallback list is gone).
 - **Narrator mode everywhere.** The batch, quick-test, showcase and re-dub
   routes now accept `narration_mode` (previously `/api/dub` only), and it's
   exposed through the CLI (`--narrator` on `dub` / `compare` / `showcase` /
@@ -70,6 +81,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reel length (guarding the N× overlap bug). A shared `ffmpeg_subs` fixture (in
   `tests/conftest.py`) skips subtitle-rendering tests when ffmpeg+libass is
   unavailable, and `ffmpeg_drawtext` covers the badge overlay.
+- `tests/test_watcher.py` (11): candidate filtering, the mtime grace period,
+  enqueue-and-move, model-error retry, in-session de-dupe, name collisions and
+  start/stop. `tests/test_submit.py` (6) covers `create_file_job`/`resolve_model`
+  and `tests/test_batch_route.py` (2) pins the batch job shape after the
+  refactor.
 
 ## [0.3.0] - 2026-09-23
 

@@ -30,12 +30,17 @@ USER_GLOSSARY_FILE = PRESETS_DIR / "user_glossary.json"
 # Optional pronunciation overrides applied to text spoken by TTS only (never
 # shown in subtitles) — e.g. {"from": "nginx", "to": "engine x"}.
 PRONUNCIATION_FILE = PRESETS_DIR / "pronunciation.json"
+# Batch folder watcher: drop videos here and they're auto-dubbed, then moved
+# to <WATCH_DIR>/processed/. Disabled unless watch_enabled is set.
+WATCH_DIR = BASE / "watch"
+WATCH_PROCESSED_DIR = WATCH_DIR / "processed"
 # User preferences — persisted across sessions. Simple JSON blob edited by the
 # UI; not schema-validated server-side (it's just a KV store).
 PREFS_FILE = BASE / "user_prefs.json"
 CONFIG_FILE = BASE / "config-user.json"
 
-for _d in (UPLOAD_DIR, OUTPUT_DIR, JOBS_DB, STATIC_DIR, VOICE_PRESETS_DIR):
+for _d in (UPLOAD_DIR, OUTPUT_DIR, JOBS_DB, STATIC_DIR, VOICE_PRESETS_DIR,
+           WATCH_DIR, WATCH_PROCESSED_DIR):
     _d.mkdir(parents=True, exist_ok=True)
 
 
@@ -81,6 +86,13 @@ class UserConfig:
     open_browser: bool = True
     server_port: int = 8910
     hf_token: str = ""                   # HuggingFace token for pyannote
+
+    # ── Folder watcher (auto-dub videos dropped in a folder) ──────────
+    watch_enabled: bool = False          # opt-in; also TACHIDUBB_WATCH_ENABLED=1
+    watch_dir: str = ""                  # empty -> <repo>/watch
+    watch_target_lang: str = "ru"        # target language for watched files
+    watch_model: str = ""                # empty -> translation_model
+    watch_poll_seconds: int = 20         # scan interval
 
     def set(self, key: str, value) -> None:
         """Set a config value and immediately persist to disk."""
@@ -128,6 +140,11 @@ def _load_config() -> UserConfig:
         "WHISPER_MODEL": "whisper_model",
         "TACHIDUBB_OPEN_BROWSER": "open_browser",
         "TACHIDUBB_WARMUP": "warmup_on_start",
+        "TACHIDUBB_WATCH_ENABLED": "watch_enabled",
+        "TACHIDUBB_WATCH_DIR": "watch_dir",
+        "TACHIDUBB_WATCH_TARGET_LANG": "watch_target_lang",
+        "TACHIDUBB_WATCH_MODEL": "watch_model",
+        "TACHIDUBB_WATCH_POLL_SECONDS": "watch_poll_seconds",
     }
     for env_k, field_k in env_map.items():
         v = os.getenv(env_k)

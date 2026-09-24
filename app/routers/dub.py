@@ -33,6 +33,7 @@ from app.pipeline import (
 )
 from app.queue import enqueue_job
 from app.state import jobs, save_job
+from app.submit import create_file_job, resolve_model
 from pipeline.assembler import assemble_dubbed_audio, merge_audio_video, write_srt
 from pipeline.media import trim_video as _trim_video
 from pipeline.showcase import (
@@ -234,19 +235,9 @@ async def start_batch_dub(
     Returns: {job_ids: [...], batch_id: str} so UI can track summary.
     """
     # Validate Ollama model once (not per-job)
-    _ok, _installed = await check_ollama()
-    if _ok and model not in _installed:
-        _preferred = ["aya-expanse:8b", "mistral-nemo:12b", "qwen2.5:14b",
-                      "qwen2.5:7b", "qwen2.5:3b", "gemma3:12b", "gemma3:4b",
-                      "llama3.2:3b", "gemma4:e4b", "gemma4:e2b"]
-        _fallback = next((m for m in _preferred if m in _installed), None)
-        if _fallback:
-            log.warning(f"Batch: '{model}' not installed; using '{_fallback}'")
-            model = _fallback
-        else:
-            return JSONResponse({
-                "error": "No translation model installed. Run: ollama pull aya-expanse:8b"
-            }, 400)
+    model, _model_err = await resolve_model(model)
+    if _model_err:
+        return JSONResponse({"error": _model_err}, 400)
 
     # Save shared reference once — all batch jobs reuse it
     ref_path = ""
@@ -351,53 +342,17 @@ async def start_batch_dub(
         dest = UPLOAD_DIR / f"{jid}{video_ext}"
         with open(dest, "wb") as f:
             shutil.copyfileobj(video.file, f)
-        jobs[jid] = {
-            "id": jid,
-            "status": initial_status,
-            "progress": 0,
-            "source": str(dest),
-            "source_type": "file",
-            "source_label": video.filename,
-            "target_lang": target_lang,
-            "model": model,
-            "speaker_mode": speaker_mode,
-            "context_hint": context_hint,
-            "voice_style": voice_style,
-            "voice_preset": voice_preset,
-            "voice_mode": ("upload" if ref_path else
-                          ("custom" if voice_style.strip() else "preset")),
-            "tts_speed": tts_speed,
-            "whisper_model": whisper_model,
-            "keep_bg": keep_bg,
-            "wizard_mode": wizard_mode,
-            "auto_denoise": auto_denoise,
-            "narration_mode": bool(narration_mode),
-            "batch_id": batch_id,
-            "batch_label": batch_label,
-            "created": time.time(),
-            "scheduled_at": scheduled_at if is_scheduled else 0,
-            "_pending_args": ({
-                "source": str(dest), "source_lang": source_lang,
-                "target_lang": target_lang, "model": model,
-                "keep_bg": keep_bg, "whisper_model": whisper_model,
-                "reference_audio": ref_path, "speaker_mode": speaker_mode,
-                "context_hint": context_hint, "voice_style": voice_style,
-                "voice_preset": voice_preset, "tts_speed": tts_speed,
-                "wizard_mode": wizard_mode, "auto_denoise": auto_denoise,
-                "narration_mode": bool(narration_mode),
-            } if is_scheduled else None),
-        }
-        save_job(jobs[jid])
-        await _enqueue_or_defer(jid, {
-            "source": str(dest), "source_lang": source_lang,
-            "target_lang": target_lang, "model": model,
-            "keep_bg": keep_bg, "whisper_model": whisper_model,
-            "reference_audio": ref_path, "speaker_mode": speaker_mode,
-            "context_hint": context_hint, "voice_style": voice_style,
-            "voice_preset": voice_preset, "tts_speed": tts_speed,
-            "wizard_mode": wizard_mode, "auto_denoise": auto_denoise,
-            "narration_mode": bool(narration_mode),
-        })
+        await create_file_job(
+            dest, job_id=jid,
+            target_lang=target_lang, model=model, source_lang=source_lang,
+            whisper_model=whisper_model, speaker_mode=speaker_mode,
+            context_hint=context_hint, voice_style=voice_style,
+            voice_preset=voice_preset, tts_speed=tts_speed, keep_bg=keep_bg,
+            auto_denoise=auto_denoise, narration_mode=narration_mode,
+            wizard_mode=wizard_mode, reference_audio=ref_path,
+            source_label=video.filename, batch_id=batch_id,
+            batch_label=batch_label, scheduled_at=scheduled_at,
+        )
         job_ids.append(jid)
 
     if is_scheduled:

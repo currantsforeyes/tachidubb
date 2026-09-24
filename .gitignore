@@ -38,6 +38,10 @@ bin/ffmpeg*
 bin/ffprobe*
 bin/yt-dlp*
 
+# Batch folder watcher — drop videos here to auto-dub (processed/ is runtime)
+watch/*
+!watch/.gitkeep
+
 # Tooling caches
 .ruff_cache/
 .pytest_cache/
