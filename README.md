@@ -533,7 +533,7 @@ container image.
 - [x] Multi-speaker diarization
 - [x] Background music preservation
 - [x] Deterministic voice across cross-lingual segments
-- [ ] Subtitle burn-in toggle (currently SRT sidecar only)
+- [x] Subtitle burn-in with live style preview (Subs panel + platform export presets that burn subs)
 - [ ] Speaker labelling UI (assign names to detected speakers)
 - [ ] Browser-only mode (no Ollama dependency, use llama.cpp WASM)
 - [ ] Batch processing folder watcher

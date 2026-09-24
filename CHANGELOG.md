@@ -21,10 +21,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   GitHub Releases, checksum verification), plus a requirements catalogue and
   definition-of-done for a future container image. Linked from the README.
 
+### Fixed
+- **Subtitle preview rendered the wrong cue.** `/api/dub/{id}/subs_preview`
+  seeks with `-ss` before `-i` for speed, which rebases timestamps to ~0, so
+  the `subtitles` filter drew the cue at t=0 instead of the cue at the requested
+  timestamp — previewing a later line came out blank. Added `-copyts` to keep
+  the original timeline. (Roadmap's "burn-in is SRT-sidecar only" note was also
+  stale: burn-in already ships.)
+
+### Changed
+- `burn_subs` and `subs_preview` now share one SRT/segment helper, so the two
+  paths can't drift; `burn_subs` validates `style` like `subs_preview` does, and
+  both handle `TimeoutExpired` / ffmpeg-missing with a clear 500 instead of an
+  unhandled error.
+
 ### Tests
 - `tests/test_client_narration.py` covers the client/CLI narration plumbing.
 - `test_routes` now asserts the served bundle actually contains the
   Pronunciation tab and Narrator-mode toggle.
+- `tests/test_media_routes.py`: 15 HTTP tests for `/subs_preview` and
+  `/burn_subs` (error paths are ffmpeg-free; happy paths run real ffmpeg and
+  skip when absent). Includes a behavioral regression test for the preview
+  timeline fix — it fails against the old `-ss`-only command.
 
 ## [0.3.0] - 2026-09-23
 

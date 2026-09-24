@@ -6,6 +6,7 @@ import subprocess
 import time
 import uuid
 from pathlib import Path
+from typing import Optional
 
 from fastapi import APIRouter, File, Form, UploadFile
 from fastapi.responses import JSONResponse, Response
@@ -18,6 +19,46 @@ from pipeline.subtitles import SUB_STYLE_MAP, build_subtitles_filter, pick_previ
 log = logging.getLogger("tachidubb.routes.media")
 
 router = APIRouter()
+
+
+# ── Shared helpers ────────────────────────────────────────────────────
+# The preview and burn-in routes both need the translated SRT (regenerating
+# it from the newest checkpoint if absent) and the raw segment list. Keep
+# that logic in one place so the two paths can't drift apart.
+_CHECKPOINTS = ("checkpoint_tts_done.json", "checkpoint_translation_done.json")
+
+
+def _read_segments(work: Path) -> list:
+    """Return the segment list from the newest available checkpoint."""
+    for name in _CHECKPOINTS:
+        p = work / name
+        if p.exists():
+            try:
+                return json.loads(p.read_text(encoding="utf-8")).get("segments", [])
+            except Exception:
+                return []
+    return []
+
+
+def _ensure_srt(work: Path) -> Optional[JSONResponse]:
+    """Make sure ``translated.srt`` exists, regenerating from a checkpoint.
+
+    Returns an error response to short-circuit the caller, or ``None`` when
+    the SRT is present/created.
+    """
+    srt_file = work / "translated.srt"
+    if srt_file.exists():
+        return None
+    for name in _CHECKPOINTS:
+        cp_path = work / name
+        if cp_path.exists():
+            try:
+                cp = json.loads(cp_path.read_text(encoding="utf-8"))
+                write_srt_file(cp.get("segments", []), srt_file)
+            except Exception as e:
+                return JSONResponse({"error": f"Could not generate SRT: {e}"}, 500)
+            return None
+    return JSONResponse({"error": "No transcript data found"}, 400)
 
 
 @router.post("/api/waveform")
@@ -82,47 +123,33 @@ async def preview_subtitle_style(
 
     work = OUTPUT_DIR / job_id
     src_video = work / "dubbed_video.mp4"
-    srt_file = work / "translated.srt"
 
     if not src_video.exists():
         return JSONResponse({"error": "Dubbed video not yet generated"}, 400)
 
-    if not srt_file.exists():
-        cp_path = work / "checkpoint_tts_done.json"
-        if not cp_path.exists():
-            cp_path = work / "checkpoint_translation_done.json"
-        if cp_path.exists():
-            try:
-                cp = json.loads(cp_path.read_text(encoding="utf-8"))
-                write_srt_file(cp.get("segments", []), srt_file)
-            except Exception as e:
-                return JSONResponse({"error": f"Could not generate SRT: {e}"}, 500)
-        else:
-            return JSONResponse({"error": "No transcript data found"}, 400)
+    srt_file = work / "translated.srt"
+    err = _ensure_srt(work)
+    if err is not None:
+        return err
 
     # Auto-pick: find a segment with text that lasts at least 1s
     if timestamp < 0:
-        segments = []
-        try:
-            cp_path = work / "checkpoint_tts_done.json"
-            if not cp_path.exists():
-                cp_path = work / "checkpoint_translation_done.json"
-            if cp_path.exists():
-                cp = json.loads(cp_path.read_text(encoding="utf-8"))
-                segments = cp.get("segments", [])
-        except Exception:
-            pass
-        timestamp = pick_preview_timestamp(segments)
+        timestamp = pick_preview_timestamp(_read_segments(work))
 
     subs_filter = build_subtitles_filter(srt_file, style)
 
     # Render one frame at <timestamp> with subs overlaid. Use -ss BEFORE
     # -i for fast seek (less accurate but saves ~10x on long videos),
     # and -frames:v 1 to output just one PNG.
+    #
+    # -copyts is required: without it, an input seek rebases PTS to ~0, so
+    # the subtitles filter would draw the cue at t=0 instead of the cue at
+    # <timestamp> (previews of a late line came out blank).
     out_png = work / f"subs_preview_{style}.png"
     try:
         subprocess.run(
             ["ffmpeg", "-y",
+             "-copyts",
              "-ss", f"{timestamp:.2f}",
              "-i", str(src_video),
              "-vf", subs_filter,
@@ -136,6 +163,13 @@ async def preview_subtitle_style(
         return JSONResponse({
             "url": f"/outputs/{job_id}/subs_preview_{style}.png?t={int(time.time())}"
         })
+    except subprocess.TimeoutExpired:
+        log.warning("[subs_preview] ffmpeg timed out")
+        return JSONResponse({"error": "Preview render timed out"}, 500)
+    except OSError as e:
+        log.warning(f"[subs_preview] could not run ffmpeg: {e}")
+        return JSONResponse({"error": "Could not run ffmpeg",
+                             "detail": str(e)[:300]}, 500)
     except subprocess.CalledProcessError as e:
         err_msg = (e.stderr or b"").decode("utf-8", errors="replace")[-500:]
         log.warning(f"[subs_preview] ffmpeg failed: {err_msg}")
@@ -152,29 +186,23 @@ async def burn_subtitles(
     from the translated SRT. Produces dubbed_video_subs.mp4 in the job dir."""
     if job_id not in jobs:
         return JSONResponse({"error": "Job not found"}, 404)
+    if style not in SUB_STYLE_MAP:
+        return JSONResponse(
+            {"error": f"Unknown style '{style}'. Options: {list(SUB_STYLE_MAP)}"}, 400)
+
     work = OUTPUT_DIR / job_id
     src_video = work / "dubbed_video.mp4"
-    srt_file = work / "translated.srt"
     dst_video = work / "dubbed_video_subs.mp4"
 
     if not src_video.exists():
         return JSONResponse({"error": "Dubbed video not yet generated"}, 400)
 
-    # Ensure SRT exists (it's written alongside translation checkpoint,
-    # but regenerate if missing using current segments)
-    if not srt_file.exists():
-        cp_path = work / "checkpoint_tts_done.json"
-        if not cp_path.exists():
-            cp_path = work / "checkpoint_translation_done.json"
-        if cp_path.exists():
-            try:
-                cp = json.loads(cp_path.read_text(encoding="utf-8"))
-                segments = cp.get("segments", [])
-                write_srt_file(segments, srt_file)
-            except Exception as e:
-                return JSONResponse({"error": f"Could not generate SRT: {e}"}, 500)
-        else:
-            return JSONResponse({"error": "No transcript data found"}, 400)
+    # Ensure the SRT exists (normally written alongside the translation
+    # checkpoint; regenerate from the latest checkpoint if it's missing).
+    srt_file = work / "translated.srt"
+    err = _ensure_srt(work)
+    if err is not None:
+        return err
 
     # Use the shared style map (preview + burn-in stay in sync)
     subs_filter = build_subtitles_filter(srt_file, style)
@@ -192,6 +220,13 @@ async def burn_subtitles(
             "ok": True,
             "url": f"/outputs/{job_id}/dubbed_video_subs.mp4?v={int(time.time())}",
         }
+    except subprocess.TimeoutExpired:
+        log.warning(f"[burn_subs] ffmpeg timed out for {job_id}")
+        return JSONResponse({"error": "Subtitle burn-in timed out"}, 500)
+    except OSError as e:
+        log.warning(f"[burn_subs] could not run ffmpeg for {job_id}: {e}")
+        return JSONResponse({"error": "Could not run ffmpeg",
+                             "detail": str(e)[:300]}, 500)
     except subprocess.CalledProcessError as e:
         err_msg = (e.stderr or b"").decode("utf-8", errors="replace")[-500:]
         log.warning(f"[burn_subs] ffmpeg failed for {job_id}: {err_msg}")
