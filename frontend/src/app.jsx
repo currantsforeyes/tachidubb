@@ -1683,6 +1683,8 @@ function TimelinePanel({ job, onApplied }) {
   const [playing, setPlaying] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  const [loadFailed, setLoadFailed] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [tool, setTool] = useState('select');
   const [pxPerSec, setPxPerSec] = useState(26);
   const [speed, setSpeed] = useState(1);
@@ -1698,13 +1700,23 @@ function TimelinePanel({ job, onApplied }) {
 
   useEffect(() => {
     let live = true;
-    setTimeline(null); setError(null); setPlayhead(0);
+    // Don't leave the editor on "Loading clips..." forever if the request
+    // stalls (slow disk, server restart mid-flight) — fail visibly + Retry.
+    const ctrl = new AbortController();
+    const timer = window.setTimeout(() => ctrl.abort(), 10000);
+    setTimeline(null); setError(null); setLoadFailed(null); setPlayhead(0);
     setMixerOn(false); setStemState('idle');
-    fetch(`/api/dub/${job.id}/timeline`).then(r => r.json()).then(d => {
-      if (live) { if (d.error) setError(d.error); else setTimeline(d); }
-    }).catch(e => live && setError(String(e)));
-    return () => { live = false; };
-  }, [job.id]);
+    fetch(`/api/dub/${job.id}/timeline`, { signal: ctrl.signal }).then(r => r.json()).then(d => {
+      if (!live) return;
+      if (d.error) setLoadFailed(d.error); else setTimeline(d);
+    }).catch(e => {
+      if (!live) return;
+      setLoadFailed(e && e.name === 'AbortError'
+        ? 'Timeline request timed out after 10s.'
+        : 'Could not load the timeline.');
+    }).finally(() => window.clearTimeout(timer));
+    return () => { live = false; ctrl.abort(); window.clearTimeout(timer); };
+  }, [job.id, reloadKey]);
 
   const duration = timeline ? Math.max(timeline.duration || 1, 1) : 1;
   const totalWidth = Math.max(320, Math.round(duration * pxPerSec));
@@ -1874,7 +1886,16 @@ function TimelinePanel({ job, onApplied }) {
   const removeCut = (c) => setTimeline(x => ({ ...x, cuts: (x.cuts || []).filter(v => v !== c) }));
 
   if (!timeline) {
-    return <div className="mono" style={{ fontSize: 11, color: 'var(--ink-3)', padding: '10px 0' }}>{error || 'Loading clips…'}</div>;
+    return (
+      <div className="mono" style={{ fontSize: 11, color: loadFailed ? 'var(--err)' : 'var(--ink-3)', padding: '10px 0' }}>
+        {loadFailed ? (
+          <>
+            {loadFailed}
+            <button className="btn" style={{ marginLeft: 10 }} onClick={() => setReloadKey(k => k + 1)}>Retry</button>
+          </>
+        ) : 'Loading clips…'}
+      </div>
+    );
   }
 
   const RULER_H = 26, TEXT_H = 30, TR_H = 36, SPK_H = 76;

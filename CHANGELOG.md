@@ -59,6 +59,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   definition-of-done for a future container image. Linked from the README.
 
 ### Fixed
+- **The dialogue editor could sit on "Loading clips…" forever.** A stalled
+  timeline request now aborts after 10s and shows the reason with a **Retry**
+  button instead of spinning indefinitely (verified live: forced failure,
+  forced 10s stall, and recovery via Retry).
 - **Subtitle preview rendered the wrong cue.** `/api/dub/{id}/subs_preview`
   seeks with `-ss` before `-i` for speed, which rebases timestamps to ~0, so
   the `subtitles` filter drew the cue at t=0 instead of the cue at the requested
