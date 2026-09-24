@@ -917,10 +917,14 @@ async def get_dub_timeline(job_id: str):
         })
     dubbed_wav = OUTPUT_DIR / job_id / "dubbed_audio.wav"
     peaks = _waveform_peaks(dubbed_wav) if dubbed_wav.exists() else []
+    # Source dialogue (the original audio), for the editor's top lane.
+    source_wav = Path(cp.get("audio_16k") or (OUTPUT_DIR / job_id / "audio_16k.wav"))
+    source_peaks = _waveform_peaks(source_wav) if source_wav.exists() else []
     return {
         "duration": float(cp.get("duration", 0.0)), "segments": rows,
         "cuts": cp.get("timeline_cuts", []),
         "peaks": peaks,
+        "source_peaks": source_peaks,
         "source_video_url": f"/outputs/{job_id}/source_video.mp4",
         "dubbed_video_url": f"/outputs/{job_id}/dubbed_video.mp4",
         "source_audio_url": f"/outputs/{job_id}/audio_16k.wav",

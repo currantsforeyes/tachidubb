@@ -46,6 +46,7 @@ def _seed(tmp_path, monkeypatch):
         ],
     }), encoding="utf-8")
     _wav(d / "dubbed_audio.wav", seconds=4.0)
+    _wav(d / "audio_16k.wav", seconds=4.0)
     return d
 
 
@@ -68,6 +69,7 @@ def test_timeline_returns_clips_original_text_and_peaks(tmp_path, monkeypatch):
     assert len(body["segments"]) == 2
     assert body["dubbed_video_url"].endswith("dubbed_video.mp4")
     assert body["peaks"] and max(body["peaks"]) == 1.0
+    assert body["source_peaks"] and max(body["source_peaks"]) == 1.0
 
 
 def test_timeline_without_checkpoint_is_404(tmp_path, monkeypatch):

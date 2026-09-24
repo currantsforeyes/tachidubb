@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Original Audio lane** in the dialogue editor, above the Original Text row:
+  a waveform of the source dialogue (`/timeline` now returns `source_peaks`
+  from the job's `audio_16k` track). The **playhead is now draggable** — drag on
+  the ruler, source-audio lane or any speaker lane to scrub the video — and
+  cuts **snap to speaker-change points** (within 0.35s) so slicing lands on the
+  turn instead of mid-word.
 - **Folder watcher** (`app/watcher.py` + `/api/watch/*`): with
   `TACHIDUBB_WATCH_ENABLED=1`, videos dropped into `watch/` are auto-dubbed and
   moved to `watch/processed/`. Skips half-copied files (mtime grace + `.part`

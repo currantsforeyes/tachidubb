@@ -1644,7 +1644,7 @@ function SMBtn({ active, onClick, label, title }) {
 
 // Canvas waveform. `activeKey` is a JSON array of [start,end] ranges that are
 // this speaker's own clips — everything else is drawn dimmed.
-function WaveformLane({ peaks, duration, pxPerSec, height = 56, activeKey = '', dim = false }) {
+function WaveformLane({ peaks, duration, pxPerSec, height = 56, activeKey = '', dim = false, color = 'oklch(0.88 0.18 125)' }) {
   const ref = useRef(null);
   useEffect(() => {
     const cv = ref.current;
@@ -1667,18 +1667,19 @@ function WaveformLane({ peaks, duration, pxPerSec, height = 56, activeKey = '', 
       const t = duration * (i / peaks.length);
       const on = !active || active.some(r => t >= r[0] && t <= r[1]);
       ctx.globalAlpha = (dim ? 0.14 : (on ? 0.9 : 0.22));
-      ctx.fillStyle = 'oklch(0.88 0.18 125)';
+      ctx.fillStyle = color;
       const h = Math.max(1, peaks[i] * mid * 0.9);
       ctx.fillRect(i * step, mid - h, Math.max(1, step * 0.85), h * 2);
     }
     ctx.globalAlpha = 1;
-  }, [peaks, duration, pxPerSec, height, activeKey, dim]);
+  }, [peaks, duration, pxPerSec, height, activeKey, dim, color]);
   return <canvas ref={ref} style={{ display: 'block' }}/>;
 }
 
 function TimelinePanel({ job, onApplied }) {
   const [timeline, setTimeline] = useState(null);
   const [dragging, setDragging] = useState(null);
+  const [scrubbing, setScrubbing] = useState(false);
   const [playhead, setPlayhead] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1867,6 +1868,20 @@ function TimelinePanel({ job, onApplied }) {
     const start = timeFromEvent(event.clientX);
     setTimeline(t => ({ ...t, segments: t.segments.map(s => s.idx === idx ? { ...s, start } : s) }));
   };
+  // Drag-to-scrub. Razor keeps cutting; otherwise pointer-drag moves the
+  // playhead (ruler, source waveform and speaker lanes are all draggable).
+  const scrubDown = (e) => {
+    if (tool === 'razor') { addCutAt(timeFromEvent(e.clientX)); return; }
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+    setScrubbing(true);
+    seekTo(timeFromEvent(e.clientX));
+  };
+  const scrubMove = (e) => { if (scrubbing) seekTo(timeFromEvent(e.clientX)); };
+  const scrubUp = (e) => {
+    if (!scrubbing) return;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
+    setScrubbing(false);
+  };
   const apply = async () => {
     if (!timeline) return;
     setSaving(true); setError(null);
@@ -1880,8 +1895,29 @@ function TimelinePanel({ job, onApplied }) {
       onApplied();
     } catch (e) { setError(e.message); } finally { setSaving(false); }
   };
+  // Points where the speaker changes - the cuts a user actually wants. Cuts
+  // snap to these when close, so slicing lands on the turn rather than mid-word.
+  const changePoints = useMemo(() => {
+    if (!timeline) return [];
+    const pts = new Set([0]);
+    let prev = null;
+    for (const s of [...timeline.segments].sort((a, b) => a.start - b.start)) {
+      const spk = s.speaker || 'SPEAKER_00';
+      if (prev !== null && spk !== prev) pts.add(Number(s.start.toFixed(3)));
+      prev = spk;
+    }
+    return [...pts].sort((a, b) => a - b);
+  }, [timeline]);
+  const snapTime = (t) => {
+    let best = t, bestDist = 0.35;
+    for (const p of changePoints) {
+      const d = Math.abs(p - t);
+      if (d < bestDist) { bestDist = d; best = p; }
+    }
+    return Number(best.toFixed(3));
+  };
   const addCutAt = (t) => setTimeline(x => ({
-    ...x, cuts: [...new Set([...(x.cuts || []), Number(t.toFixed(3))])].sort((a, b) => a - b),
+    ...x, cuts: [...new Set([...(x.cuts || []), snapTime(t)])].sort((a, b) => a - b),
   }));
   const removeCut = (c) => setTimeline(x => ({ ...x, cuts: (x.cuts || []).filter(v => v !== c) }));
 
@@ -1898,7 +1934,7 @@ function TimelinePanel({ job, onApplied }) {
     );
   }
 
-  const RULER_H = 26, TEXT_H = 30, TR_H = 36, SPK_H = 76;
+  const RULER_H = 26, WAVE_H = 52, TEXT_H = 30, TR_H = 36, SPK_H = 76;
   const rowStyle = (h) => ({ position: 'relative', height: h, width: totalWidth, borderBottom: '1px solid var(--line)' });
   const headerRow = (h, children) => ({ height: h, borderBottom: '1px solid var(--line)', display: 'flex', alignItems: 'center', padding: '0 10px', minWidth: 0 });
 
@@ -1998,6 +2034,7 @@ function TimelinePanel({ job, onApplied }) {
           <div style={{ ...headerRow(RULER_H), justifyContent: 'flex-start' }}>
             <span className="mono" style={{ fontSize: 17, color: 'var(--ink)', letterSpacing: '-0.02em' }}>{fmtTimecode(playhead)}</span>
           </div>
+          <div style={{ ...headerRow(WAVE_H), fontSize: 11.5, color: 'var(--ink-4)' }}>Original Audio</div>
           <div style={{ ...headerRow(TEXT_H), fontSize: 11.5, color: 'var(--ink-3)' }}>Original Text</div>
           <div style={{ ...headerRow(TR_H), fontSize: 11.5, color: 'var(--ink-2)' }}>Translated Text</div>
           {speakers.map(spk => {
@@ -2022,14 +2059,28 @@ function TimelinePanel({ job, onApplied }) {
           <div ref={railRef} style={{ position: 'relative', width: totalWidth }}>
             {/* Ruler */}
             <div
-              onPointerDown={e => { if (tool === 'select') seekTo(timeFromEvent(e.clientX)); }}
-              style={{ ...rowStyle(RULER_H), background: 'var(--bg-2)', cursor: 'text' }}
+              onPointerDown={scrubDown}
+              onPointerMove={scrubMove}
+              onPointerUp={scrubUp}
+              style={{ ...rowStyle(RULER_H), background: 'var(--bg-2)', cursor: tool === 'razor' ? 'crosshair' : 'ew-resize', touchAction: 'none' }}
             >
               {ticks.map((t, i) => (
                 <div key={i} style={{ position: 'absolute', left: t * pxPerSec, top: 0, bottom: 0, borderLeft: '1px solid var(--line-2)' }}>
                   <span className="mono" style={{ position: 'absolute', left: 4, top: 6, fontSize: 9, color: 'var(--ink-4)', whiteSpace: 'nowrap' }}>{fmtSec(t)}</span>
                 </div>
               ))}
+            </div>
+
+            {/* Original audio lane - the source dialogue, for reference */}
+            <div
+              onPointerDown={scrubDown}
+              onPointerMove={scrubMove}
+              onPointerUp={scrubUp}
+              style={{ ...rowStyle(WAVE_H), cursor: tool === 'razor' ? 'crosshair' : 'ew-resize', touchAction: 'none' }}
+            >
+              <div style={{ position: 'absolute', left: 0, top: 2 }}>
+                <WaveformLane peaks={timeline.source_peaks} duration={duration} pxPerSec={pxPerSec} height={WAVE_H - 8} color="oklch(0.62 0.02 250)"/>
+              </div>
             </div>
 
             {/* Original Text lane */}
@@ -2075,8 +2126,10 @@ function TimelinePanel({ job, onApplied }) {
               const dim = !!solo && solo !== spk;
               return (
                 <div key={spk}
-                  onPointerDown={e => { if (tool === 'razor') addCutAt(timeFromEvent(e.clientX)); }}
-                  style={{ ...rowStyle(SPK_H), cursor: tool === 'razor' ? 'crosshair' : 'default', opacity: muted[spk] ? 0.4 : 1 }}
+                  onPointerDown={scrubDown}
+                  onPointerMove={scrubMove}
+                  onPointerUp={scrubUp}
+                  style={{ ...rowStyle(SPK_H), cursor: tool === 'razor' ? 'crosshair' : 'ew-resize', opacity: muted[spk] ? 0.4 : 1, touchAction: 'none' }}
                 >
                   <div style={{ position: 'absolute', left: 0, top: 2 }}>
                     <WaveformLane peaks={timeline.peaks} duration={duration} pxPerSec={pxPerSec} height={SPK_H - 8} activeKey={activeRanges} dim={dim}/>
@@ -2100,6 +2153,7 @@ function TimelinePanel({ job, onApplied }) {
               }}/>
             ))}
             <div style={{ position: 'absolute', left: playhead * pxPerSec, top: 0, bottom: 0, width: 2, background: 'var(--err)', zIndex: 5, pointerEvents: 'none' }}/>
+            <div style={{ position: 'absolute', left: playhead * pxPerSec - 5, top: 0, width: 10, height: 9, background: 'var(--err)', clipPath: 'polygon(0 0, 100% 0, 50% 100%)', zIndex: 6, pointerEvents: 'none' }}/>
           </div>
         </div>
       </div>
