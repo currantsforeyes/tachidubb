@@ -8,9 +8,11 @@ concatenated into one reel.
 import asyncio
 import json
 import logging
+import subprocess
 import time
 from pathlib import Path
 
+from app.checkpoints import latest_segments
 from app.config import OUTPUT_DIR
 from app.languages import QUICK_TEST_DEFAULT_LANGS as _QUICK_TEST_DEFAULT_LANGS
 from app.state import jobs
@@ -84,26 +86,18 @@ async def maybe_assemble_showcase(batch_id: str) -> None:
 def assemble_showcase_sync(batch_id: str, siblings: list, showcase_dir: Path) -> None:
     """Synchronous worker for showcase assembly. Runs in a thread to keep
     the event loop responsive (ffmpeg is blocking)."""
-    import subprocess  # follow existing per-function-import pattern
     siblings = sorted(siblings, key=lambda j: j.get("batch_position", 0))
     n = len(siblings)
     log.info(f"[showcase] {batch_id}: assembling {n} language segments…")
 
     # ── Load source segment times (any sibling has them; pick the first) ─
+    # Only the segment END times matter here (they set the cut points), and
+    # the TTS stage never rewrites them — it records dub positions separately
+    # as placed_start/placed_end. So the newest checkpoint gives the same
+    # source-time boundaries as any other.
     segments: list = []
     for j in siblings:
-        work = OUTPUT_DIR / j["id"]
-        for cp_name in ("checkpoint_translation_done.json",
-                        "checkpoint_transcription_done.json"):
-            cp = work / cp_name
-            if cp.exists():
-                try:
-                    data = json.loads(cp.read_text(encoding="utf-8"))
-                    segments = data.get("segments", []) or []
-                    if segments:
-                        break
-                except Exception as e:
-                    log.warning(f"[showcase] couldn't parse {cp}: {e}")
+        segments = latest_segments(j["id"], output_dir=OUTPUT_DIR)
         if segments:
             break
 
@@ -135,10 +129,9 @@ def assemble_showcase_sync(batch_id: str, siblings: list, showcase_dir: Path) ->
         else:
             # Fallback: probe dubbed audio track duration (not the mp4 container)
             # using ffprobe's stream-level query which returns audio stream duration.
-            import subprocess as _sp
             audio_dur = 0.0
             try:
-                r = _sp.run(
+                r = subprocess.run(
                     ["ffprobe", "-v", "error",
                      "-select_streams", "a:0",
                      "-show_entries", "stream=duration",
@@ -190,10 +183,16 @@ def assemble_showcase_sync(batch_id: str, siblings: list, showcase_dir: Path) ->
         eff_end = (max(p["dub_end"] for p in placements)
                    if placements else effective_ends[slice_idx]
                    if slice_idx < len(effective_ends) else total_dur)
-        # Overlap matching: segment overlaps slice if src_start < g_e AND src_end > g_s
+        # Overlap test for half-open intervals: a segment belongs to this
+        # slice only if it genuinely overlaps it. The ±1ms tolerance absorbs
+        # float noise, but must sit INSIDE the slice bounds — with the old
+        # `g_e + 0.001` / `g_s - 0.001` the segment merely touching each
+        # boundary was also pulled in. Because snap boundaries always land
+        # exactly on segment edges, that double-counted both neighbours and
+        # made every slice span the whole reel (N× too long).
         in_slice = [
             p for p in placements
-            if p["src_start"] < g_e + 0.001 and p["src_end"] > g_s - 0.001
+            if p["src_start"] < g_e - 0.001 and p["src_end"] > g_s + 0.001
         ]
         if in_slice:
             # Key: include the SOURCE time range as well as the dub placement

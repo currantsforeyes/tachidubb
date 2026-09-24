@@ -28,6 +28,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   timestamp — previewing a later line came out blank. Added `-copyts` to keep
   the original timeline. (Roadmap's "burn-in is SRT-sidecar only" note was also
   stale: burn-in already ships.)
+- **Showcase reels came out N× too long.** `assemble_showcase_sync` matched
+  segments to a slice with `src_start < g_e + 0.001` / `src_end > g_s - 0.001`.
+  Since slice boundaries are snapped exactly onto segment edges, that also
+  claimed the segment merely *touching* each boundary, so every slice expanded
+  to the neighbours' full extent and each language replayed the whole timeline
+  (a 2-language, 2-second reel measured 4 s). The tolerance now sits inside the
+  bounds (`< g_e - 0.001`, `> g_s + 0.001`), keeping the documented
+  long-merged-segment coverage without double-counting neighbours. Existing
+  reels can be regenerated with `tachidubb showcase-rebuild <batch_id>`.
 
 ### Changed
 - Subtitle SRT materialisation is now one shared helper,
@@ -36,6 +45,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   copies that disagreed on which checkpoint was authoritative. All three now
   take the most advanced checkpoint (tts → translation → transcription), so a
   job that only got as far as transcription still gets an SRT.
+  `assemble_showcase_sync` now uses `latest_segments` too (it only needs
+  segment end times, which no stage rewrites) instead of its own checkpoint
+  loop; its two function-scope `subprocess` imports moved to module scope.
 - `burn_subs` validates `style` like `subs_preview` does (and export does when
   the preset burns subs); all three handle `TimeoutExpired` / ffmpeg-missing
   with a clear 500 instead of an unhandled error.
@@ -52,9 +64,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   timeline fix — it fails against the old `-ss`-only command.
 - `tests/test_export_preset.py`: 10 HTTP tests for `/api/dub/{id}/export`.
 - `tests/test_checkpoints.py`: 6 tests for `latest_segments` /
-  `ensure_translated_srt`. A shared `ffmpeg_subs` fixture (in
+  `ensure_translated_srt`.
+- `tests/test_showcase_assembly.py`: 3 tests for the reel stitcher — two
+  ffmpeg-free early-exit guards and a full 2-language stitch that asserts the
+  reel length (guarding the N× overlap bug). A shared `ffmpeg_subs` fixture (in
   `tests/conftest.py`) skips subtitle-rendering tests when ffmpeg+libass is
-  unavailable.
+  unavailable, and `ffmpeg_drawtext` covers the badge overlay.
 
 ## [0.3.0] - 2026-09-23
 
