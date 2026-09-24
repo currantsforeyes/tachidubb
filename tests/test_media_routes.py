@@ -10,7 +10,6 @@ draws the cue at t=0 instead of the cue at the requested timestamp —
 ``test_preview_draws_cue_at_requested_timestamp`` pins the fix.
 """
 import json
-import shutil
 import subprocess
 
 import numpy as np
@@ -23,25 +22,6 @@ from app.main import app
 client = TestClient(app)
 
 JOB_ID = "testjob"
-
-
-def _ffmpeg_supports_subtitles() -> bool:
-    if shutil.which("ffmpeg") is None:
-        return False
-    try:
-        out = subprocess.run(
-            ["ffmpeg", "-hide_banner", "-filters"],
-            capture_output=True, text=True, timeout=30,
-        ).stdout
-    except Exception:
-        return False
-    return any(" subtitles " in line for line in out.splitlines())
-
-
-needs_ffmpeg = pytest.mark.skipif(
-    not _ffmpeg_supports_subtitles(),
-    reason="ffmpeg with the libass 'subtitles' filter is required",
-)
 
 
 @pytest.fixture
@@ -201,8 +181,7 @@ def test_preview_ffmpeg_missing_returns_500(work, monkeypatch):
 
 
 # ── happy paths (real ffmpeg) ─────────────────────────────────────────
-@needs_ffmpeg
-def test_burn_subs_end_to_end(work):
+def test_burn_subs_end_to_end(work, ffmpeg_subs):
     _make_video(work / "dubbed_video.mp4")
     _write_srt(work / "translated.srt", 0.0, 1.0, "Bonjour")
 
@@ -216,8 +195,7 @@ def test_burn_subs_end_to_end(work):
     assert out.exists() and out.stat().st_size > 1000
 
 
-@needs_ffmpeg
-def test_preview_end_to_end_returns_png(work):
+def test_preview_end_to_end_returns_png(work, ffmpeg_subs):
     _make_video(work / "dubbed_video.mp4")
     _write_srt(work / "translated.srt", 0.0, 1.0, "Bonjour")
 
@@ -230,8 +208,7 @@ def test_preview_end_to_end_returns_png(work):
     assert png.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
 
 
-@needs_ffmpeg
-def test_preview_draws_cue_at_requested_timestamp(work):
+def test_preview_draws_cue_at_requested_timestamp(work, ffmpeg_subs):
     """A cue that exists only at 3.0-3.5s must appear when previewing 3.2s.
 
     Before the -copyts fix the timeline was rebased to 0, so the 3.2s preview

@@ -3,6 +3,7 @@ import asyncio
 import json
 import logging
 import shutil
+import subprocess
 import time
 import uuid
 from pathlib import Path
@@ -11,6 +12,7 @@ from typing import Optional
 from fastapi import APIRouter, File, Form, UploadFile
 from fastapi.responses import JSONResponse
 
+from app.checkpoints import NoTranscriptError, ensure_translated_srt
 from app.config import OUTPUT_DIR, UPLOAD_DIR
 from app.languages import (
     QUICK_TEST_KNOWN_LANGS as _QUICK_TEST_KNOWN_LANGS,
@@ -22,11 +24,8 @@ from app.showcase import (
     _showcase_tasks,
 )
 from app.state import jobs, save_job
-from pipeline.media import (
-    trim_video as _trim_video,
-    write_srt_file as _write_srt_file,
-)
-from pipeline.subtitles import build_subtitles_filter
+from pipeline.media import trim_video as _trim_video
+from pipeline.subtitles import SUB_STYLE_MAP, build_subtitles_filter
 from pipeline.translator import check_ollama
 
 log = logging.getLogger("tachidubb.routes.showcase")
@@ -598,12 +597,14 @@ async def export_for_platform(
     Returns JSON: {"ok": True, "url": "..."}  on success,
                   {"error": "...", "detail": "..."}  on failure.
     """
-    import subprocess
     if job_id not in jobs:
         return JSONResponse({"error": "Job not found"}, 404)
     if preset not in _EXPORT_PRESETS:
         return JSONResponse(
             {"error": f"Unknown preset '{preset}'. Options: {list(_EXPORT_PRESETS)}"}, 400)
+    if style not in SUB_STYLE_MAP and _EXPORT_PRESETS[preset]["burn_subs"]:
+        return JSONResponse(
+            {"error": f"Unknown style '{style}'. Options: {list(SUB_STYLE_MAP)}"}, 400)
 
     work = OUTPUT_DIR / job_id
     src_video = work / "dubbed_video.mp4"
@@ -614,21 +615,16 @@ async def export_for_platform(
     dst_video = work / f"export_{preset}.mp4"
     vf = pc["vf"]
 
-    # For presets that burn subs, append the subtitle filter to the chain
+    # For presets that burn subs, append the subtitle filter to the chain.
+    # A job with no transcript at all exports without subs rather than failing.
     if pc["burn_subs"]:
-        srt_file = work / "translated.srt"
-        if not srt_file.exists():
-            cp_path = work / "checkpoint_tts_done.json"
-            if not cp_path.exists():
-                cp_path = work / "checkpoint_translation_done.json"
-            if cp_path.exists():
-                try:
-                    cp = json.loads(cp_path.read_text(encoding="utf-8"))
-                    _write_srt_file(cp.get("segments", []), srt_file)
-                except Exception as e:
-                    return JSONResponse({"error": f"Could not generate SRT: {e}"}, 500)
-        if srt_file.exists():
+        try:
+            srt_file = ensure_translated_srt(job_id, output_dir=OUTPUT_DIR)
             vf = f"{vf},{build_subtitles_filter(srt_file, style)}"
+        except NoTranscriptError:
+            log.info(f"[export] no transcript for {job_id}; exporting without subtitles")
+        except Exception as e:
+            return JSONResponse({"error": f"Could not generate SRT: {e}"}, 500)
 
     cmd = [
         "ffmpeg", "-y", "-i", str(src_video),
@@ -647,6 +643,13 @@ async def export_for_platform(
             "url": f"/outputs/{job_id}/export_{preset}.mp4?v={int(time.time())}",
             "preset": preset,
         })
+    except subprocess.TimeoutExpired:
+        log.warning(f"[export] ffmpeg timed out for {job_id}/{preset}")
+        return JSONResponse({"error": f"Export timed out for preset '{preset}'"}, 500)
+    except OSError as e:
+        log.warning(f"[export] could not run ffmpeg for {job_id}/{preset}: {e}")
+        return JSONResponse({"error": "Could not run ffmpeg",
+                             "detail": str(e)[:300]}, 500)
     except subprocess.CalledProcessError as e:
         err_msg = (e.stderr or b"").decode("utf-8", errors="replace")[-500:]
         log.warning(f"[export] ffmpeg failed for {job_id}/{preset}: {err_msg}")

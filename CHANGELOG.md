@@ -30,10 +30,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stale: burn-in already ships.)
 
 ### Changed
-- `burn_subs` and `subs_preview` now share one SRT/segment helper, so the two
-  paths can't drift; `burn_subs` validates `style` like `subs_preview` does, and
-  both handle `TimeoutExpired` / ffmpeg-missing with a clear 500 instead of an
-  unhandled error.
+- Subtitle SRT materialisation is now one shared helper,
+  `app.checkpoints.ensure_translated_srt` (+ `latest_segments`), used by the
+  preview, burn-in and platform-export routes — previously three near-duplicate
+  copies that disagreed on which checkpoint was authoritative. All three now
+  take the most advanced checkpoint (tts → translation → transcription), so a
+  job that only got as far as transcription still gets an SRT.
+- `burn_subs` validates `style` like `subs_preview` does (and export does when
+  the preset burns subs); all three handle `TimeoutExpired` / ffmpeg-missing
+  with a clear 500 instead of an unhandled error.
+- Platform export without a transcript now logs and exports the video without
+  subtitles rather than failing.
 
 ### Tests
 - `tests/test_client_narration.py` covers the client/CLI narration plumbing.
@@ -43,6 +50,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `/burn_subs` (error paths are ffmpeg-free; happy paths run real ffmpeg and
   skip when absent). Includes a behavioral regression test for the preview
   timeline fix — it fails against the old `-ss`-only command.
+- `tests/test_export_preset.py`: 10 HTTP tests for `/api/dub/{id}/export`.
+- `tests/test_checkpoints.py`: 6 tests for `latest_segments` /
+  `ensure_translated_srt`. A shared `ffmpeg_subs` fixture (in
+  `tests/conftest.py`) skips subtitle-rendering tests when ffmpeg+libass is
+  unavailable.
 
 ## [0.3.0] - 2026-09-23
 

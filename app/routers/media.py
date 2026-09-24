@@ -1,19 +1,21 @@
 """Media routes: audio waveform rendering and subtitle preview / burn-in."""
-import json
 import logging
 import shutil
 import subprocess
 import time
 import uuid
 from pathlib import Path
-from typing import Optional
 
 from fastapi import APIRouter, File, Form, UploadFile
 from fastapi.responses import JSONResponse, Response
 
+from app.checkpoints import (
+    NoTranscriptError,
+    ensure_translated_srt,
+    latest_segments,
+)
 from app.config import OUTPUT_DIR, UPLOAD_DIR
 from app.state import jobs
-from pipeline.media import write_srt_file
 from pipeline.subtitles import SUB_STYLE_MAP, build_subtitles_filter, pick_preview_timestamp
 
 log = logging.getLogger("tachidubb.routes.media")
@@ -21,44 +23,19 @@ log = logging.getLogger("tachidubb.routes.media")
 router = APIRouter()
 
 
-# ── Shared helpers ────────────────────────────────────────────────────
-# The preview and burn-in routes both need the translated SRT (regenerating
-# it from the newest checkpoint if absent) and the raw segment list. Keep
-# that logic in one place so the two paths can't drift apart.
-_CHECKPOINTS = ("checkpoint_tts_done.json", "checkpoint_translation_done.json")
+def _srt_or_error(job_id: str) -> tuple:
+    """Return ``(srt_path, None)`` or ``(None, error_response)``.
 
-
-def _read_segments(work: Path) -> list:
-    """Return the segment list from the newest available checkpoint."""
-    for name in _CHECKPOINTS:
-        p = work / name
-        if p.exists():
-            try:
-                return json.loads(p.read_text(encoding="utf-8")).get("segments", [])
-            except Exception:
-                return []
-    return []
-
-
-def _ensure_srt(work: Path) -> Optional[JSONResponse]:
-    """Make sure ``translated.srt`` exists, regenerating from a checkpoint.
-
-    Returns an error response to short-circuit the caller, or ``None`` when
-    the SRT is present/created.
+    Keeps the job's translated SRT present (regenerating it from the newest
+    checkpoint if needed) and maps the two failure modes to the same 400/500
+    responses the preview and burn-in routes have always returned.
     """
-    srt_file = work / "translated.srt"
-    if srt_file.exists():
-        return None
-    for name in _CHECKPOINTS:
-        cp_path = work / name
-        if cp_path.exists():
-            try:
-                cp = json.loads(cp_path.read_text(encoding="utf-8"))
-                write_srt_file(cp.get("segments", []), srt_file)
-            except Exception as e:
-                return JSONResponse({"error": f"Could not generate SRT: {e}"}, 500)
-            return None
-    return JSONResponse({"error": "No transcript data found"}, 400)
+    try:
+        return ensure_translated_srt(job_id, output_dir=OUTPUT_DIR), None
+    except NoTranscriptError:
+        return None, JSONResponse({"error": "No transcript data found"}, 400)
+    except Exception as e:
+        return None, JSONResponse({"error": f"Could not generate SRT: {e}"}, 500)
 
 
 @router.post("/api/waveform")
@@ -127,14 +104,13 @@ async def preview_subtitle_style(
     if not src_video.exists():
         return JSONResponse({"error": "Dubbed video not yet generated"}, 400)
 
-    srt_file = work / "translated.srt"
-    err = _ensure_srt(work)
+    srt_file, err = _srt_or_error(job_id)
     if err is not None:
         return err
 
     # Auto-pick: find a segment with text that lasts at least 1s
     if timestamp < 0:
-        timestamp = pick_preview_timestamp(_read_segments(work))
+        timestamp = pick_preview_timestamp(latest_segments(job_id, output_dir=OUTPUT_DIR))
 
     subs_filter = build_subtitles_filter(srt_file, style)
 
@@ -197,10 +173,9 @@ async def burn_subtitles(
     if not src_video.exists():
         return JSONResponse({"error": "Dubbed video not yet generated"}, 400)
 
-    # Ensure the SRT exists (normally written alongside the translation
-    # checkpoint; regenerate from the latest checkpoint if it's missing).
-    srt_file = work / "translated.srt"
-    err = _ensure_srt(work)
+    # Make sure the SRT exists (normally written alongside the translation
+    # checkpoint; regenerated from the latest checkpoint if it's missing).
+    srt_file, err = _srt_or_error(job_id)
     if err is not None:
         return err
 

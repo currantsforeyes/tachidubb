@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Optional
 
 from app.config import OUTPUT_DIR
+from pipeline.media import write_srt_file
 
 log = logging.getLogger("tachidubb.checkpoints")
 
@@ -117,3 +118,34 @@ def latest_checkpoint(job_id: str, output_dir: Optional[Path] = None) -> Optiona
         if cp:
             return cp
     return None
+
+
+class NoTranscriptError(Exception):
+    """Raised when there is no checkpoint to build subtitle text from."""
+
+
+def latest_segments(job_id: str, output_dir: Optional[Path] = None) -> list:
+    """Return the segment list from the most advanced checkpoint (or ``[]``)."""
+    cp = latest_checkpoint(job_id, output_dir=output_dir)
+    return (cp or {}).get("segments", []) or []
+
+
+def ensure_translated_srt(job_id: str, output_dir: Optional[Path] = None) -> Path:
+    """Ensure ``outputs/<job_id>/translated.srt`` exists, and return its path.
+
+    Regenerates the SRT from the most advanced checkpoint when it is missing
+    (deleted, or the job never got far enough to write it). Raises
+    ``NoTranscriptError`` when there is no checkpoint at all to build from;
+    write failures propagate to the caller.
+
+    Shared by the subtitle preview, burn-in and platform-export routes so they
+    can't disagree about which checkpoint is authoritative.
+    """
+    srt_file = _resolve(output_dir) / job_id / "translated.srt"
+    if srt_file.exists():
+        return srt_file
+    cp = latest_checkpoint(job_id, output_dir=output_dir)
+    if not cp:
+        raise NoTranscriptError(f"No checkpoint found for job {job_id}")
+    write_srt_file(cp.get("segments", []), srt_file)
+    return srt_file
