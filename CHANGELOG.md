@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Frontend test suite** (vitest + Testing Library, `frontend/test/`):
+  29 tests in two tiers — render smoke tests for every view module and the
+  App shell (the regression class a broken import or missing export
+  produces), and behavior tests for the contracts worth pinning: History
+  search/status filtering, the Home form's `FormData` submit payload,
+  status → stage mapping, StatusBadge labels, and VoicesView's rendering of
+  fetched presets. A route-table fetch stub in `test/api.js` keeps tests
+  offline (views fetch on mount); `src/sphere.jsx` is aliased to a no-op
+  because jsdom has no WebGL. CI runs it as a `frontend-test` job on Node 22
+  (jsdom 30 requires ≥22; the bundle job stays on Node 20, where jsdom is
+  installed but never executed).
 - **SQLite schema versioning** (`app/db.py`): the schema version now lives in
   SQLite's own `PRAGMA user_version` header field. Startup runs every
   registered migration above that version, each one transactional together

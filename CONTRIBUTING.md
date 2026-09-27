@@ -74,6 +74,12 @@ For new pure functions, add a small `tests/test_<module>.py`. GPU/ffmpeg
 integration paths are still validated by running the app — for pipeline
 changes, attach a short clip or screenshot to the PR.
 
+The frontend has its own suite (vitest + Testing Library, jsdom):
+
+```bash
+npm --prefix frontend test   # run (same as CI)
+```
+
 ## Frontend
 
 The UI is a single-page React app. Source lives in `frontend/src/`, split by
@@ -105,6 +111,23 @@ commit `static/dist/app.js` alongside source changes.
 
 The bundle includes React, ReactDOM and three.js — there are no CDN scripts
 and no in-browser Babel, so the app runs fully offline.
+
+### Frontend tests
+
+`frontend/test/` holds two kinds, both run by `npm --prefix frontend test`:
+
+- **`*.test.jsx` smoke tests** — every view module and the App shell must
+  render without throwing. This is the regression class a broken import or a
+  missing export produces; if you add a view, add a render test.
+- **behavior tests** — what a view does with data (search filtering, the
+  submit `FormData` contract, status → stage mapping). Add one when you add
+  user-visible behavior.
+
+Shared plumbing lives in `frontend/test/setup.js` (fetch stub, localStorage
+shim) and `frontend/test/api.js` (route table — override with `setRoute()`
+before rendering, assert on `fetchCalls` after). Views fetch on mount, so
+tests never hit the network. `src/sphere.jsx` is aliased to a no-op in
+`vitest.config.mjs` — WebGL doesn't exist in jsdom.
 
 ## Commit style
 
