@@ -35,7 +35,7 @@ YouTube link in → voice-cloned dub in 28 languages out. No cloud, no per-minut
 | **Voice cloning** | ✅ VoxCPM2 | ✅ | ✅ | ✅ |
 | **Languages** | 28 | 29 | 40+ | 130+ |
 | **Multi-speaker diarization** | ✅ (pyannote) | ✅ | ✅ | ✅ |
-| **Background music preservation** | ✅ (audio-separator) | ✅ | ✅ | ✅ |
+| **Background music preservation** | ✅ (demucs, built-in) | ✅ | ✅ | ✅ |
 | **YouTube URL → MP4** | ✅ in one step | ❌ | ❌ | ❌ |
 | **Stitched multilingual reel** | ✅ built-in | ❌ | ❌ | ❌ |
 | **MCP / agent control** | ✅ first-class | ❌ | ❌ | ❌ |
@@ -219,7 +219,7 @@ Source detection is automatic (Whisper). Translation goes through whatever Ollam
 | | Minimum | Recommended | Why |
 |---|---|---|---|
 | **VRAM** | 8 GB | 12 GB+ | VoxCPM2 + Whisper + a translation LLM coexist |
-| **RAM** | 16 GB | 32 GB | Audio-separator (background preservation) is hungry |
+| **RAM** | 16 GB | 32 GB | Demucs stem split (every job) is hungry |
 | **Disk** | 20 GB | 40 GB+ | Models + outputs |
 | **GPU** | Any CUDA 12.0+ | RTX 30/40/50 series | CPU fallback works but ~15× slower |
 | **Python** | 3.11 | 3.11 | Installed into a project-local venv |
@@ -241,7 +241,7 @@ Windows setup creates and uses `venv` inside the TachiDUBB folder. It never inst
 | Whisper `large-v3` weights | ~3 GB | First dubbing run, cached forever |
 | Ollama translation model (e.g. `qwen3:8b`) | ~5 GB | At install (you pick it) |
 | pyannote diarization weights (optional) | ~500 MB | First multi-speaker run |
-| audio-separator UVR weights (optional) | ~250 MB | First background-preserve run |
+| demucs separation weights | ~300 MB | First stem-split run (every job uses it) |
 
 **Total for full setup: ~18 GB.** Skinny single-language setup without diarization or BGM preservation: ~12 GB.
 
@@ -339,7 +339,7 @@ curl -X POST localhost:8910/api/watch/scan   # scan once right now
 | Feature | Install | Notes |
 |---|---|---|
 | Multi-speaker diarization | `pip install pyannote.audio` + HF token | Auto-detects N speakers, clones each |
-| Background music preservation | `pip install audio-separator` | Demuxes vocals, keeps original BGM |
+| Stem split (speech/background) | (already in requirements) | demucs; runs before transcription, mixes BGM back when "Keep background audio" is on |
 | Faster Whisper on GPU | (already in requirements) | If CUDA isn't found, falls back to CPU |
 
 ---
@@ -451,7 +451,7 @@ Usually one of the child dubs failed silently. `python tools/tachidubb_cli.py sh
 <details>
 <summary><b>Background-preserve toggle does nothing</b></summary>
 
-Install the optional dep: `pip install audio-separator`. The UI shows a yellow warning if it's missing. First demux is slow (~30 s on GPU); subsequent ones are cached.
+Stem split runs on every job; the toggle only controls whether the background stem is mixed into the final video. That needs a separator — `demucs` is in `requirements.txt` (or `pip install audio-separator` as an alternative). Without one the pipeline logs a warning and falls back to the full mix. First split is slow (~30 s on GPU); the model (~300 MB) is downloaded once.
 
 </details>
 

@@ -48,7 +48,7 @@ export function SystemView({ system, onRefreshSystem }) {
         {tab === 'storage'  && <SysStorage/>}
         {tab === 'glossary' && <SysGlossary/>}
         {tab === 'pronunciation' && <SysPronunciation/>}
-        {tab === 'addons'   && <SysAddons/>}
+        {tab === 'addons'   && <SysAddons system={system}/>}
       </div>
     </div>
   );
@@ -723,7 +723,7 @@ export function SysPronunciation() {
 }
 
 // ── Add-ons tab ─────────────────────────────────────────────────────
-export function SysAddons() {
+export function SysAddons({ system }) {
   const [lipStatus, setLipStatus] = useState(null);
 
   useEffect(() => {
@@ -745,11 +745,14 @@ export function SysAddons() {
         repoDir={lipStatus?.repo_dir}
       />
       <AddonCard
-        name="audio-separator"
-        detail="Preserves original music and SFX during dubbing. Without this, enabling 'Keep background audio' on the Home form silently fails."
-        installed={null}
-        size="~800 MB with UVR model"
-        steps={['pip install audio-separator']}
+        name="Vocal separation (demucs / audio-separator)"
+        detail="Splits every job's audio into speech + background stems before transcription, so Whisper only hears clean speech. With keep-background on, the background stem is also mixed under the final dub. Without a separator the pipeline falls back to the full mix."
+        installed={system?.separator?.ok ?? null}
+        size="~300 MB model, downloaded on first use"
+        steps={[
+          'pip install demucs   (recommended)',
+          'or: pip install audio-separator',
+        ]}
       />
     </div>
   );

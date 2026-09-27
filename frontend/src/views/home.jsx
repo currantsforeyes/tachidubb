@@ -584,7 +584,7 @@ export function HomeView({ system, voicePresets, sphereOn, onJobSubmitted }) {
 
         {/* 04 ADVANCED */}
         <SectionHeader index={4} title="Advanced"/>
-        <Toggle value={keepBg}     onChange={setKeepBg}     label="Keep background audio (music / SFX)" hint="Uses audio-separator. Install required — see System."/>
+        <Toggle value={keepBg}     onChange={setKeepBg}     label="Keep background audio (music / SFX)" hint="Stem split always runs; this also mixes the background stem under the final dub. Needs demucs — see System."/>
         <Toggle value={autoDenoise} onChange={setAutoDenoise} label="Auto-denoise audio" hint="+3-5s · ON for noisy footage (mat sounds, crowd, AC hum) · OFF for clean studio audio"/>
         <Toggle value={lipSync} onChange={setLipSync}
                 disabled={lipStatus && !lipStatus.installed}

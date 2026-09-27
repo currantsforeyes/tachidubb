@@ -9,6 +9,7 @@ import logging
 import os
 import shutil
 import subprocess
+import time
 
 log = logging.getLogger("tachidubb.audio")
 
@@ -125,6 +126,73 @@ def _make_silent_bg(duration: float, output_dir: str) -> str:
         "-acodec", "pcm_s16le", bg,
     ], "silent bg")
     return bg
+
+
+def _downsample_16k_mono(src_path: str, dst_path: str) -> str:
+    """Resample any audio file to the 16 kHz mono WAV the ASR chain expects."""
+    _run([
+        "ffmpeg", "-y", "-i", src_path,
+        "-ar", "16000", "-ac", "1", "-acodec", "pcm_s16le", dst_path,
+    ], "downsample speech track")
+    return dst_path
+
+
+def _separator_available() -> bool:
+    """True when demucs or audio-separator can actually run."""
+    for mod in ("demucs", "audio_separator"):
+        try:
+            __import__(mod)
+            return True
+        except Exception:
+            continue
+    return False
+
+
+def build_speech_track(video_path: str, work_dir: str, full_mix: str,
+                       keep_bg: bool) -> tuple[str, str]:
+    """Stem split FIRST: separate background from speech, then hand back the
+    speech track the whole ASR chain reads.
+
+    Runs for every job — the clean vocals stem is what makes Whisper,
+    diarization and speaker-ref extraction good — while the background stem
+    it also writes (``work_dir/background.wav``) is only returned for the
+    final mix when ``keep_bg`` is set. Both stems are written either way:
+    the editor and future per-speaker work read them from the job dir.
+
+    Returns ``(speech_path, background_path)``:
+      - speech_path: vocals stem downsampled to 16 kHz mono; falls back to
+        ``full_mix`` when no separator is installed or separation fails, so
+        the pipeline then behaves exactly like pre-stem builds.
+      - background_path: background stem to mix under the dub ("" when
+        ``keep_bg`` is off or separation is unavailable).
+    """
+    if not _separator_available():
+        if keep_bg:
+            log.warning(
+                "keep_bg is on but no separator (demucs/audio-separator) is "
+                "installed — transcribing the full mix, background will NOT "
+                "be mixed (see System page)"
+            )
+        else:
+            log.info("[stems] No separator installed — ASR uses the full mix")
+        return full_mix, ""
+
+    try:
+        t0 = time.time()
+        audio_hq = os.path.join(work_dir, "audio_hq.wav")
+        extract_audio_hq(video_path, audio_hq)
+        vocals, bg = separate_background(audio_hq, work_dir)
+        speech = os.path.join(work_dir, "audio_speech.wav")
+        _downsample_16k_mono(vocals, speech)
+        log.info(
+            f"[stems] Split in {time.time()-t0:.0f}s: vocals -> "
+            f"audio_speech.wav (ASR input), background -> background.wav "
+            f"({'mixed' if keep_bg else 'kept for editor, not mixed'})"
+        )
+        return speech, (bg if keep_bg else "")
+    except Exception as e:
+        log.warning(f"Stem separation unavailable (ASR uses the full mix): {e}")
+        return full_mix, ""
 
 
 def separate_background(audio_path: str, output_dir: str) -> tuple[str, str]:

@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Stem split runs first, for every job** (`pipeline/audio.py` →
+  `build_speech_track()`): audio is separated into speech + background stems
+  *before* denoise/VAD/transcription, so Whisper, diarization and speaker-ref
+  extraction all read the clean vocals stem instead of the raw full mix
+  (music/crowd never reach the model). Previously separation only ran when
+  "Keep background audio" was ticked — and only for the final mix, while
+  transcription still saw the full mix. `keep_bg` now only decides whether
+  the background stem is mixed under the final dub; both stems
+  (`vocals.wav`, `background.wav`) are always written to the job dir for the
+  editor. Falls back to the full mix (pre-stem behaviour) when no separator
+  is installed, with a warning instead of silence. demucs promoted to an
+  active dependency in `requirements.txt`; the System → Add-ons card now
+  reports whether any separator is available (`check_separator()`).
+
+### Changed
+
+- Home form hint for "Keep background audio" now reflects that stem split
+  always runs and the toggle only controls the final mix.
+
 ### Fixed
 
 - **Dubbed audio now syncs with the video.** The VAD filter (`apply_vad_filter`)

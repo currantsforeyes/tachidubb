@@ -1,8 +1,9 @@
 """Dubbing pipeline orchestrator.
 
 Extracted from ``server.py``. Runs one dub end to end: download -> extract ->
-(VAD / denoise) -> transcribe -> diarize -> post-process -> translate -> TTS ->
-assemble -> merge. Pauses at checkpoints when ``wizard_mode`` requests review.
+stem split -> (denoise / VAD) -> transcribe -> diarize -> post-process ->
+translate -> TTS -> assemble -> merge. Pauses at checkpoints when
+``wizard_mode`` requests review.
 """
 import asyncio
 import logging
@@ -18,10 +19,9 @@ from app.tts import get_tts_engine, terminate_tts_worker
 from app.voices import resolve_voice_config
 from pipeline.assembler import assemble_dubbed_audio, merge_audio_video, write_srt
 from pipeline.audio import (
+    build_speech_track,
     extract_audio,
-    extract_audio_hq,
     get_duration,
-    separate_background,
 )
 from pipeline.diarizer import (
     assign_speakers_to_segments,
@@ -128,6 +128,18 @@ async def run_pipeline(
         # not the VAD output (which is time-compressed).
         audio_full = audio_16k
 
+        # 2a. STEM SPLIT FIRST — separate background from speech before any
+        # speech processing. The ASR chain (denoise → VAD → Whisper →
+        # diarization → speaker refs) reads the clean vocals stem, so music
+        # and crowd noise never reach the model; keep_bg only decides
+        # whether the background stem goes back under the final dub. Both
+        # stems are written to the job dir either way (the editor uses them).
+        # Falls back to the full mix when no separator is installed.
+        update(progress=12, step_detail="Splitting speech from background...")
+        audio_16k, bg_audio_path = build_speech_track(
+            video_path, str(work), audio_full, keep_bg,
+        )
+
         # 2b. Optional denoise for noisy source audio.
         # BJJ/cooking/sports videos often have mat noise, background music,
         # crowd, or equipment hum that WhisperX mistakes for words. We
@@ -160,14 +172,6 @@ async def run_pipeline(
             except Exception as e:
                 log.warning(f"Denoise failed (using raw audio): {e}")
 
-        bg_audio_path = ""
-        if keep_bg:
-            try:
-                audio_hq = str(work / "audio_hq.wav")
-                extract_audio_hq(video_path, audio_hq)
-                _, bg_audio_path = separate_background(audio_hq, str(work))
-            except Exception as e:
-                log.warning(f"BG separation skipped: {e}")
         update(progress=15)
 
         # 2c. VAD filtering — strip long silence/music before Whisper.

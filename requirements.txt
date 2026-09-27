@@ -41,11 +41,12 @@ voxcpm==2.0.3
 # Neural TTS fallback (no GPU, no cloning, always available)
 edge-tts>=7.2,<8
 
-# Vocal separation — Tier 1 (recommended, ships with torch)
-# Install to enable Demucs (htdemucs_ft model):
-# demucs>=4.0.0
+# Vocal separation — runs on EVERY job (stem split before transcription;
+# see pipeline/audio.build_speech_track). demucs ships with torch.
+# Without any separator the pipeline falls back to the full mix.
+demucs>=4.0.0
 
-# Vocal separation — Tier 2 (alternative to demucs)
+# Vocal separation — alternative to demucs
 # audio-separator>=0.17.0
 
 # Speaker diarization (optional, needs HF_TOKEN in .env or config-user.json)

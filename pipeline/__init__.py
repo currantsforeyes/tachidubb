@@ -1,6 +1,6 @@
 """TachiDUBB Studio Pipeline - modular dubbing components."""
 from .downloader import download_video
-from .audio import extract_audio, extract_audio_hq, separate_background, get_duration
+from .audio import extract_audio, extract_audio_hq, separate_background, build_speech_track, get_duration
 from .transcriber import transcribe
 from .diarizer import diarize_speakers, assign_speakers_to_segments, extract_speaker_audio
 from .translator import translate_segments, check_ollama, ollama_pull_stream

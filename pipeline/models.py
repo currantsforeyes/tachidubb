@@ -193,6 +193,19 @@ def check_demucs():
         return {"ok": False, "error": str(e)[:150]}
 
 
+def check_separator():
+    """Any working vocal separator (demucs or audio-separator).
+
+    Stem split runs for every job (pipeline/audio.build_speech_track), so
+    this drives the Add-ons card: without one, transcription falls back to
+    the full mix and keep-bg mixes nothing.
+    """
+    from pipeline.audio import _separator_available
+    if _separator_available():
+        return {"ok": True}
+    return {"ok": False, "hint": "pip install demucs   (or audio-separator)"}
+
+
 def check_f5tts():
     try:
         import f5_tts  # noqa
@@ -269,6 +282,7 @@ def get_system_status():
         "voxcpm": check_voxcpm(),
         "f5tts": check_f5tts(),
         "demucs": check_demucs(),
+        "separator": check_separator(),
         "silero_vad": check_silero_vad(),
         "edge_tts": check_edge_tts(),
         "pyannote": check_pyannote(),
