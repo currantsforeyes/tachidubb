@@ -16,12 +16,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Install ffmpeg (unlocks the media tests, skipped without it)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg fonts-dejavu-core
       - name: Install test dependencies
         run: pip install -r requirements-dev.txt
       - name: Lint
         run: ruff check .
+      # Keep in sync with lint.yml: no -q here (pyproject's addopts already
+      # adds one, and a second suppresses the summary), -ra shows skip reasons.
       - name: Tests
-        run: pytest -q
+        run: pytest -ra
 
   release:
     needs: test
