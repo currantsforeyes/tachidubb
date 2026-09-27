@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **SQLite schema versioning** (`app/db.py`): the schema version now lives in
+  SQLite's own `PRAGMA user_version` header field. Startup runs every
+  registered migration above that version, each one transactional together
+  with its version bump — a failed step rolls back both schema and version,
+  so the next startup retries cleanly instead of facing a half-applied
+  schema. Pre-versioning databases (v0) adopt v1 in place: migration 1 is
+  `IF NOT EXISTS`, so it stamps the version without rebuilding the table or
+  touching rows (verified against a copy of a real 9-job database).
+  Databases written by a *newer* build are refused with a clear error rather
+  than guessed at, and a `SCHEMA_VERSION`/`MIGRATIONS` registry mismatch is
+  caught at startup. To change the schema later: add `_migration_N`, register
+  it in `MIGRATIONS` — `SCHEMA_VERSION` derives from the registry.
 - **Original Audio lane** in the dialogue editor, above the Original Text row:
   a waveform of the source dialogue (`/timeline` now returns `source_peaks`
   from the job's `audio_16k` track). The **playhead is now draggable** — drag on
