@@ -9,21 +9,10 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 
-
-def configure_windows_dlls() -> None:
-    """Make the local FFmpeg DLL directory visible before importing Torch."""
-    candidates = [
-        os.environ.get("TACHIDUBB_FFMPEG_BIN", ""),
-        r"C:\Users\mrgar\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-9.0.1-full_build\bin",
-    ]
-    for candidate in candidates:
-        if candidate and Path(candidate).is_dir():
-            os.add_dll_directory(candidate)
-            return
+from ffmpeg_dlls import configure_windows_dlls
 
 
 def parse_reference(value: str) -> tuple[str, Path]:

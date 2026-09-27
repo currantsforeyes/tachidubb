@@ -8,7 +8,6 @@ WhisperX, pyannote, or VoxCPM.
 from __future__ import annotations
 
 import json
-import os
 import sys
 import time
 import traceback
@@ -19,19 +18,15 @@ def event(**payload) -> None:
     print(json.dumps(payload, ensure_ascii=False), flush=True)
 
 
-def configure_windows_dlls() -> None:
-    candidates = [
-        os.environ.get("TACHIDUBB_FFMPEG_BIN", ""),
-        r"C:\Users\mrgar\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-9.0.1-full_build\bin",
-    ]
-    for candidate in candidates:
-        if candidate and Path(candidate).is_dir():
-            os.add_dll_directory(candidate)
-            return
-
-
 def main(job_path: str) -> None:
     job = json.loads(Path(job_path).read_text(encoding="utf-8"))
+    # This worker runs as a bare script (sys.path[0] is pipeline/), so the
+    # shared helper in tools/ needs an explicit path before importing it.
+    tools_dir = str(Path(__file__).resolve().parents[1] / "tools")
+    if tools_dir not in sys.path:
+        sys.path.insert(0, tools_dir)
+    from ffmpeg_dlls import configure_windows_dlls
+
     configure_windows_dlls()
     import soundfile as sf
     import torch
