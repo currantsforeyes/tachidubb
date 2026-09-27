@@ -61,6 +61,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to the job.
 
 ### Changed
+- **CI now runs the media tests.** The Ubuntu runner had no ffmpeg, so the
+  seven ffmpeg-gated tests (subtitle burn-in, preview, export presets,
+  showcase stitching) silently skipped on every push — the pipeline's core
+  value was only ever tested on a dev machine. The test job installs ffmpeg
+  + DejaVu fonts, and runs `pytest -ra` instead of `pytest -q`: pyproject's
+  `addopts = "-q"` plus the workflow's `-q` made it `-qq`, which suppresses
+  the pass/skip summary entirely, so skips were invisible in the log.
+- **Qwen workers share one FFmpeg DLL helper.** `configure_windows_dlls` was
+  copy-pasted across `pipeline/qwen_tts_worker.py`, `tools/qwen_asr_refs.py`
+  and `tools/qwen_tts_compare.py`, each pinning a hardcoded
+  `C:\Users\mrgar\...\ffmpeg-9.0.1-full_build\bin` (one username, one FFmpeg
+  version). The logic now lives in `tools/ffmpeg_dlls.py`: env overrides
+  (`TACHIDUBB_FFMPEG_BIN`, `FFMPEG_DIR`, `FFMPEG_PATH`) first, then a
+  per-user WinGet package scan — and it no longer raises `AttributeError` on
+  non-Windows platforms, where `os.add_dll_directory` doesn't exist.
 - **Frontend split into modules.** `frontend/src/app.jsx` (6,003 lines) is now
   an entry point plus 17 modules: `app-root.jsx` (shell/routing), shared
   `constants.js` / `icons.jsx` / `sphere.jsx` / `ui.jsx` / `nav.jsx`, and one
