@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Dubbed audio now syncs with the video.** The VAD filter (`apply_vad_filter`)
+  concatenates speech regions with `atrim`+`concat` before Whisper, so every
+  timestamp downstream — transcript, diarization, SRT, TTS placement, the
+  editor timeline, showcase cuts — lived on a *compressed* clock while the
+  video kept the original one. Measured on a real 26.96s job: segments landed
+  **1.3–1.6s early**, and the ambience tail read past the end of the
+  compressed file (empty tail → audio trimmed to 19.667s, which in turn
+  truncated the MuseTalk lipsync output). Now `apply_vad_filter` also returns
+  the speech regions it removed, and `pipeline/vad.py` gains pure
+  `speech_regions()`/`map_time()`/`restore_original_times()` helpers that map
+  segment (and word) timings back to source-video time after reference
+  extraction — the last consumer of the compressed clock — so checkpoints,
+  SRT, assembly, placements, editor and showcase all share one clock.
+  Verified end-to-end against the original job: per-segment onset error
+  **≤0.02s** (was −0.06 to −1.61s), output duration 26.960s = video length
+  (was 19.667s). No-op whenever VAD doesn't compress (skipped, dense speech,
+  Silero unavailable, ffmpeg failure).
+- **Checkpoints now store `audio_full`** — the full-length, original-clock
+  source audio — and the ambience tail (`tail_audio_path`) reads it instead
+  of `audio_16k`, which may point at the time-compressed VAD file. The
+  dialogue editor's source lane (`/timeline` → `source_peaks`) and the
+  retry path (`app/routers/dub.py`) prefer `audio_full` too. Old checkpoints
+  fall back to `audio_16k` and stay resumable with their previous behaviour.
+- **Silent ambience-tail failures now log why** (`assemble_dubbed_audio`):
+  if `tail_start` falls beyond the tail file's end — the symptom of two
+  different clocks meeting — the tail is skipped with a warning naming both
+  durations instead of silently ending the dub seconds before the video.
+
 ## [0.4.0] - 2026-09-27
 
 ### Added

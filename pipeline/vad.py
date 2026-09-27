@@ -76,32 +76,27 @@ def _get_duration_ffprobe(path: str) -> float:
         return 0.0
 
 
-def apply_vad_filter(audio_path: str, output_path: str,
-                     threshold: float = 0.5) -> tuple[str, float]:
-    """Extract only speech regions from audio_path into output_path.
+def speech_regions(audio_path: str, threshold: float = 0.5,
+                   total_dur: float | None = None) -> list:
+    """Padded + merged speech regions as [(start, end), ...] in ORIGINAL time.
 
-    Returns (output_path, speech_ratio) where speech_ratio is the fraction
-    of the original audio that contains detected speech (0.0-1.0).
+    This is the exact geometry :func:`apply_vad_filter` uses to build its
+    ``atrim``/``concat`` filter — anything that must translate between the
+    compressed VAD output and the original timeline (see
+    :func:`restore_original_times`) has to go through here so the mapping
+    can never drift from the actual audio.
 
-    If silero-vad isn't installed or VAD finds no segments, copies the
-    original audio unchanged and returns speech_ratio=1.0 (conservative).
-
-    This helps Whisper in two ways:
-      1. Removes long music intros that cause hallucinations like
-         "Translated by XYZ" or repeated filler phrases.
-      2. Reduces total audio length → faster transcription.
+    Returns [] when Silero isn't installed or finds no speech (the caller
+    then keeps the original audio unchanged). ``total_dur`` is passed in by
+    callers that already probed it; otherwise it's read via ffprobe.
     """
-    total_dur = _get_duration_ffprobe(audio_path)
-    if total_dur <= 0:
-        import shutil
-        shutil.copy2(audio_path, output_path)
-        return output_path, 1.0
-
     timestamps = get_speech_timestamps(audio_path, threshold=threshold)
     if not timestamps:
-        import shutil
-        shutil.copy2(audio_path, output_path)
-        return output_path, 1.0
+        return []
+    if total_dur is None:
+        total_dur = _get_duration_ffprobe(audio_path)
+        if total_dur <= 0:
+            return []
 
     # Add padding and clamp to audio bounds
     padded = []
@@ -117,8 +112,92 @@ def apply_vad_filter(audio_path: str, output_path: str,
             merged[-1] = (merged[-1][0], max(merged[-1][1], e))
         else:
             merged.append([s, e])
+    return [(s, e) for s, e in merged]
 
-    speech_seconds = sum(e - s for s, e in merged)
+
+def map_time(t: float, regions: list | None) -> float:
+    """Map a time from the compressed VAD output back to original time.
+
+    ``t`` is a position in the concatenated file; ``regions`` are the padded
+    speech regions (original time) that were concatenated to build it. Returns
+    ``t`` unchanged when ``regions`` is None (no compression happened).
+    Positions past the end of speech (Whisper can pad slightly beyond the
+    file) clamp to the last region's end rather than extrapolating into
+    nothing.
+    """
+    if not regions:
+        return t
+    acc = 0.0
+    for s, e in regions:
+        dur = e - s
+        if t <= acc + dur:
+            return max(0.0, s + (t - acc))
+        acc += dur
+    return regions[-1][1]
+
+
+def restore_original_times(segments: list, regions: list | None) -> list:
+    """Rewrite ``start``/``end`` (and word timings) from VAD-compressed time
+    back to original video time, in place. No-op when ``regions`` is None.
+
+    Segments carry both kinds of timing during the pipeline: VAD concatenates
+    speech before Whisper runs, so transcript/diarization timestamps live on
+    the compressed clock, while assembly, SRT, showcase cuts, the editor
+    timeline and the review UI all compare against the source video. Calling
+    this once, after the last consumer of the compressed audio (reference
+    extraction), puts every later stage on the video clock.
+    """
+    if not regions:
+        return segments
+    for seg in segments:
+        if seg.get("start") is not None:
+            seg["start"] = map_time(float(seg["start"]), regions)
+        if seg.get("end") is not None:
+            seg["end"] = map_time(float(seg["end"]), regions)
+        for w in seg.get("words") or []:
+            if w.get("start") is not None:
+                w["start"] = map_time(float(w["start"]), regions)
+            if w.get("end") is not None:
+                w["end"] = map_time(float(w["end"]), regions)
+    return segments
+
+
+def apply_vad_filter(audio_path: str, output_path: str,
+                     threshold: float = 0.5) -> tuple[str, float, list | None]:
+    """Extract only speech regions from audio_path into output_path.
+
+    Returns ``(output_path, speech_ratio, regions)``:
+      - speech_ratio: fraction of the original audio that is speech (0.0-1.0)
+      - regions: the padded/merged speech regions (original time) that were
+        concatenated, or None when the output keeps the original timeline
+        (no Silero, no speech found, audio already dense, or ffmpeg failed) —
+        i.e. None means "no remapping needed".
+
+    NOTE: when regions is not None the output timeline is COMPRESSED —
+    Whisper timestamps from it are NOT video timestamps. Use
+    :func:`restore_original_times` before anything touches the video clock.
+
+    If silero-vad isn't installed or VAD finds no segments, copies the
+    original audio unchanged and returns speech_ratio=1.0 (conservative).
+
+    This helps Whisper in two ways:
+      1. Removes long music intros that cause hallucinations like
+         "Translated by XYZ" or repeated filler phrases.
+      2. Reduces total audio length → faster transcription.
+    """
+    total_dur = _get_duration_ffprobe(audio_path)
+    if total_dur <= 0:
+        import shutil
+        shutil.copy2(audio_path, output_path)
+        return output_path, 1.0, None
+
+    regions = speech_regions(audio_path, threshold=threshold, total_dur=total_dur)
+    if not regions:
+        import shutil
+        shutil.copy2(audio_path, output_path)
+        return output_path, 1.0, None
+
+    speech_seconds = sum(e - s for s, e in regions)
     speech_ratio = speech_seconds / total_dur if total_dur > 0 else 1.0
 
     if speech_ratio < SPEECH_RATIO_WARNING:
@@ -128,23 +207,24 @@ def apply_vad_filter(audio_path: str, output_path: str,
         )
 
     if speech_ratio > 0.90:
-        # Almost all speech — skip filtering, not worth the overhead
+        # Almost all speech — skip filtering, not worth the overhead.
+        # Timeline unchanged, so regions stays None (no remap needed).
         log.info(
             f"VAD: {speech_ratio*100:.0f}% speech — audio is dense, skipping filter"
         )
         import shutil
         shutil.copy2(audio_path, output_path)
-        return output_path, speech_ratio
+        return output_path, speech_ratio, None
 
     # Build ffmpeg filter: select speech intervals + concatenate
     # atrim=start=X:end=Y, then concat all pieces
     pieces = []
-    for i, (s, e) in enumerate(merged):
+    for i, (s, e) in enumerate(regions):
         pieces.append(
             f"[0:a]atrim=start={s:.3f}:end={e:.3f},asetpts=PTS-STARTPTS[a{i}]"
         )
 
-    n = len(merged)
+    n = len(regions)
     concat_inputs = "".join(f"[a{i}]" for i in range(n))
     filter_complex = ";".join(pieces) + f";{concat_inputs}concat=n={n}:v=0:a=1[out]"
 
@@ -160,9 +240,9 @@ def apply_vad_filter(audio_path: str, output_path: str,
             f"VAD: filtered {total_dur:.0f}s → {speech_seconds:.0f}s "
             f"({speech_ratio*100:.0f}% speech, {n} segments)"
         )
-        return output_path, speech_ratio
+        return output_path, speech_ratio, regions
     except Exception as e:
         log.warning(f"VAD ffmpeg filter failed ({e}) — using full audio")
         import shutil
         shutil.copy2(audio_path, output_path)
-        return output_path, 1.0
+        return output_path, 1.0, None

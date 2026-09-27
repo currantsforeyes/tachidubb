@@ -269,21 +269,33 @@ def assemble_dubbed_audio(segments, total_duration, output_path,
                 if tail.ndim > 1:
                     tail = tail.mean(axis=1)
                 source_offset = int(tail_start * tail_sr)
-                tail = tail[source_offset:]
-                if tail_sr != sample_rate and len(tail) > 1:
-                    new_len = int(len(tail) * sample_rate / tail_sr)
-                    indices = np.linspace(0, len(tail) - 1, new_len)
-                    tail = np.interp(indices, np.arange(len(tail)), tail).astype(np.float32)
-                offset = int(tail_start * sample_rate)
-                length = min(len(tail), len(mix) - offset)
-                if length > 0:
-                    fade = min(int(0.03 * sample_rate), length)
-                    if fade:
-                        tail[:fade] *= np.linspace(0.0, 1.0, fade, dtype=np.float32)
-                    mix[offset:offset + length] += tail[:length]
-                    current_end = max(current_end, min(total_duration, offset + length / sample_rate))
-                    restored_source_tail = True
-                    log.info(f"Restored {current_end - tail_start:.1f}s source ambience tail")
+                if source_offset >= len(tail):
+                    # Seen in the wild: tail_start came from a different clock
+                    # than tail_audio_path (e.g. VAD-compressed timestamps read
+                    # from the full-length file) — the slice was silently empty
+                    # and the dub ended seconds before the video. Say so.
+                    log.warning(
+                        f"Ambience tail skipped: tail_start {tail_start:.2f}s "
+                        f"exceeds tail audio {len(tail) / tail_sr:.2f}s "
+                        f"({os.path.basename(tail_audio_path)}) — segment "
+                        f"timestamps and tail file are on different clocks"
+                    )
+                else:
+                    tail = tail[source_offset:]
+                    if tail_sr != sample_rate and len(tail) > 1:
+                        new_len = int(len(tail) * sample_rate / tail_sr)
+                        indices = np.linspace(0, len(tail) - 1, new_len)
+                        tail = np.interp(indices, np.arange(len(tail)), tail).astype(np.float32)
+                    offset = int(tail_start * sample_rate)
+                    length = min(len(tail), len(mix) - offset)
+                    if length > 0:
+                        fade = min(int(0.03 * sample_rate), length)
+                        if fade:
+                            tail[:fade] *= np.linspace(0.0, 1.0, fade, dtype=np.float32)
+                        mix[offset:offset + length] += tail[:length]
+                        current_end = max(current_end, min(total_duration, offset + length / sample_rate))
+                        restored_source_tail = True
+                        log.info(f"Restored {current_end - tail_start:.1f}s source ambience tail")
         except Exception as exc:
             log.warning(f"Could not restore source ambience tail: {exc}")
 

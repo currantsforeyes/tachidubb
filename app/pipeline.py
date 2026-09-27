@@ -34,7 +34,7 @@ from pipeline.showcase import save_placements
 from pipeline.synthesizer import QwenTTSEngine, VoxCPMSynthesizer
 from pipeline.transcriber import transcribe
 from pipeline.translator import translate_segments, unload_ollama_model
-from pipeline.vad import apply_vad_filter
+from pipeline.vad import apply_vad_filter, restore_original_times
 
 from app.pronunciation import apply as apply_pronunciation_rules
 
@@ -123,6 +123,10 @@ async def run_pipeline(
         update(status="extracting", progress=10, step_detail="Extracting audio tracks...")
         audio_16k = str(work / "audio_16k.wav")
         extract_audio(video_path, audio_16k)
+        # Full-length source audio, original clock — never rebound below.
+        # The ambience tail and the editor's source lane must read THIS,
+        # not the VAD output (which is time-compressed).
+        audio_full = audio_16k
 
         # 2b. Optional denoise for noisy source audio.
         # BJJ/cooking/sports videos often have mat noise, background music,
@@ -168,11 +172,16 @@ async def run_pipeline(
 
         # 2c. VAD filtering — strip long silence/music before Whisper.
         # silero-vad is optional (graceful fallback to full audio).
+        # NOTE: this REPLACES audio_16k with a time-compressed file (speech
+        # regions concatenated), so Whisper timestamps below live on the
+        # compressed clock. vad_regions is the mapping back to original time;
+        # None means "no compression happened" (see pipeline/vad.py).
+        vad_regions = None
         if cfg.vad_enabled:
             try:
                 vad_out = str(work / "audio_16k_vad.wav")
                 update(progress=16, step_detail="Filtering non-speech regions...")
-                audio_16k, speech_ratio = apply_vad_filter(
+                audio_16k, speech_ratio, vad_regions = apply_vad_filter(
                     audio_16k, vad_out, threshold=cfg.vad_threshold
                 )
                 if speech_ratio < 0.15:
@@ -361,6 +370,19 @@ async def run_pipeline(
         except Exception as e:
             log.warning(f"Segment postprocess failed (continuing with raw): {e}")
 
+        # ─── ONE CLOCK: map VAD-compressed timestamps back to video time ──
+        # Everything above ran against the concatenated VAD output, so segment
+        # (and word) timings live on the compressed clock — placed directly
+        # they land 1-2s early against the source video. Reference extraction
+        # above NEEDED the compressed clock (it reads the VAD file); everything
+        # from here on meets the video: checkpoints, SRT, assembly, placements,
+        # editor timeline, showcase. No-op when VAD didn't compress.
+        if vad_regions:
+            segments = restore_original_times(segments, vad_regions)
+            restore_original_times(transcript_preview_raw, vad_regions)
+            log.info(f"[vad] Mapped {len(segments)} segment(s) back to "
+                     f"source-video timestamps")
+
         n_speakers = len(set(s.get("speaker", "?") for s in segments))
         update(speaker_count=n_speakers, progress=42)
 
@@ -370,6 +392,10 @@ async def run_pipeline(
         save_checkpoint(job_id, work, stage="transcription_done", data={
             "video_path": video_path,
             "audio_16k": audio_16k,
+            # Full-length source audio (original clock). audio_16k may point
+            # at the time-compressed VAD output above; the ambience tail and
+            # the editor's source lane must never read that one.
+            "audio_full": audio_full,
             "bg_audio_path": bg_audio_path,
             "duration": duration,
             "effective_src": effective_src,
@@ -483,6 +509,7 @@ async def run_pipeline(
         save_checkpoint(job_id, work, stage="translation_done", data={
             "video_path": video_path,
             "audio_16k": audio_16k,
+            "audio_full": audio_full,
             "bg_audio_path": bg_audio_path,
             "duration": duration,
             "effective_src": effective_src,
@@ -595,6 +622,7 @@ async def run_pipeline(
         save_checkpoint(job_id, work, stage="tts_done", data={
             "video_path": video_path,
             "audio_16k": audio_16k,
+            "audio_full": audio_full,
             "bg_audio_path": bg_audio_path,
             "duration": duration,
             "effective_src": effective_src,
@@ -627,7 +655,7 @@ async def run_pipeline(
         assemble_dubbed_audio(
             segments, duration, dubbed_wav, tts.sample_rate, apply_loudnorm=True,
             fit_to_slots=isinstance(tts, QwenTTSEngine),
-            tail_audio_path=audio_16k if isinstance(tts, QwenTTSEngine) else "",
+            tail_audio_path=audio_full if isinstance(tts, QwenTTSEngine) else "",
         )
         save_placements(work, segments)
 
@@ -864,10 +892,14 @@ async def _run_tts_and_merge_stage(
 
     update(status="assembling", progress=88, step_detail="Assembling dubbed audio...")
     dubbed_wav = str(work / audio_output_name)
+    # Old checkpoints predate audio_full and stored the VAD path under
+    # audio_16k — fall back keeps them resumable (their tail may stay empty,
+    # same as before this fix).
+    tail_src = state.get("audio_full") or state.get("audio_16k", "")
     assemble_dubbed_audio(
         segments, state["duration"], dubbed_wav, tts.sample_rate,
         apply_loudnorm=True, fit_to_slots=isinstance(tts, QwenTTSEngine),
-        tail_audio_path=state.get("audio_16k", "") if isinstance(tts, QwenTTSEngine) else "",
+        tail_audio_path=tail_src if isinstance(tts, QwenTTSEngine) else "",
     )
     save_placements(work, segments)
 

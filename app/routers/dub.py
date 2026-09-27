@@ -918,7 +918,13 @@ async def get_dub_timeline(job_id: str):
     dubbed_wav = OUTPUT_DIR / job_id / "dubbed_audio.wav"
     peaks = _waveform_peaks(dubbed_wav) if dubbed_wav.exists() else []
     # Source dialogue (the original audio), for the editor's top lane.
-    source_wav = Path(cp.get("audio_16k") or (OUTPUT_DIR / job_id / "audio_16k.wav"))
+    # audio_full = full-length original clock; audio_16k may be the
+    # time-compressed VAD output, which would misalign the lane vs video.
+    source_wav = Path(
+        cp.get("audio_full")
+        or cp.get("audio_16k")
+        or (OUTPUT_DIR / job_id / "audio_16k.wav")
+    )
     source_peaks = _waveform_peaks(source_wav) if source_wav.exists() else []
     return {
         "duration": float(cp.get("duration", 0.0)), "segments": rows,
@@ -963,7 +969,8 @@ async def apply_dub_timeline(job_id: str, placements: str = Form(...), cuts: str
         assemble_dubbed_audio(
             cp["segments"], cp["duration"], dubbed_wav, cp.get("sample_rate", 48000),
             apply_loudnorm=True, fit_to_slots=is_qwen,
-            tail_audio_path=cp.get("audio_16k", "") if is_qwen else "",
+            tail_audio_path=(cp.get("audio_full") or cp.get("audio_16k", ""))
+            if is_qwen else "",
         )
         _save_placements(work, cp["segments"])
         merge_audio_video(cp["video_path"], dubbed_wav, str(work / "dubbed_video.mp4"),
