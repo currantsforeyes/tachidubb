@@ -76,14 +76,32 @@ changes, attach a short clip or screenshot to the PR.
 
 ## Frontend
 
-The UI is a single-page React app. Source lives in `frontend/src/app.jsx`;
-the bundle at `static/dist/app.js` is committed so end users need no Node
+The UI is a single-page React app. Source lives in `frontend/src/`, split by
+feature:
+
+| Path | Contents |
+|---|---|
+| `app.jsx` | Entry point — imports `App`, mounts the root. |
+| `app-root.jsx` | App shell: view routing, job polling, keyboard shortcuts. |
+| `constants.js` | Languages, statuses, stage map, format helpers. |
+| `icons.jsx` / `sphere.jsx` / `ui.jsx` / `nav.jsx` | Icon set, three.js sphere, shared widgets, left rail + top bar. |
+| `views/*.jsx` | One file per view (`home`, `processing`, `review`, `result`, `editor`, `panels`, `history`, `batch`, `system`, `voices`, `glossary`). |
+
+Rules of thumb: a view imports from the shared modules, never from a sibling
+view (`views/result.jsx` → `views/panels.jsx` is the one deliberate exception;
+`FileSlot` lives in `ui.jsx` precisely so views don't need each other). Keep
+new shared widgets in `ui.jsx`.
+
+The bundle at `static/dist/app.js` is committed so end users need no Node
 toolchain. After editing the UI:
 
 ```bash
 npm --prefix frontend install      # once
 npm --prefix frontend run build    # writes static/dist/app.js
 ```
+
+CI fails if the committed bundle doesn't match a fresh rebuild, so always
+commit `static/dist/app.js` alongside source changes.
 
 The bundle includes React, ReactDOM and three.js — there are no CDN scripts
 and no in-browser Babel, so the app runs fully offline.

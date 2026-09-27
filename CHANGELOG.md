@@ -49,6 +49,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   to the job.
 
 ### Changed
+- **Frontend split into modules.** `frontend/src/app.jsx` (6,003 lines) is now
+  an entry point plus 17 modules: `app-root.jsx` (shell/routing), shared
+  `constants.js` / `icons.jsx` / `sphere.jsx` / `ui.jsx` / `nav.jsx`, and one
+  file per view under `views/`. The split is a pure code-motion refactor — the
+  rebuilt bundle is behaviorally identical (verified round-trip byte-for-byte
+  against the pre-split source, plus a 10-view browser smoke test with zero
+  console errors). See CONTRIBUTING.md for the module map and the rule that
+  views import from shared modules, not from each other.
 - `pipeline.assembler.assemble_dubbed_audio` gained `use_recorded=` (place
   clips at the timeline_start/placed_start the pipeline already saved instead
   of re-deriving them), and `assemble_speaker_stems()` builds one WAV per
