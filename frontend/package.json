@@ -6,7 +6,9 @@
   "scripts": {
     "build": "esbuild src/app.jsx --bundle --minify --jsx=transform --target=es2019 --legal-comments=none --outfile=../static/dist/app.js",
     "build:dev": "esbuild src/app.jsx --bundle --jsx=transform --sourcemap --outfile=../static/dist/app.js",
-    "watch": "esbuild src/app.jsx --bundle --jsx=transform --sourcemap --outfile=../static/dist/app.js --watch"
+    "watch": "esbuild src/app.jsx --bundle --jsx=transform --sourcemap --outfile=../static/dist/app.js --watch",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "react": "18.3.1",
@@ -14,6 +16,9 @@
     "three": "0.160.0"
   },
   "devDependencies": {
-    "esbuild": "^0.25.0"
+    "@testing-library/react": "^16.3.3",
+    "esbuild": "^0.25.0",
+    "jsdom": "^30.1.1",
+    "vitest": "^3.2.7"
   }
 }
