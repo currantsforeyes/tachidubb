@@ -177,3 +177,115 @@ def waveform_peaks(audio_path, buckets: int = 1200) -> list:
     except Exception as e:
         log.warning(f"[waveform] peaks failed for {audio_path}: {type(e).__name__}: {e}")
         return []
+
+
+def plan_speaker_turns(rows: list, duration: float, extra_cuts=()) -> list:
+    """Tile ``[0, duration]`` into one entry per speaker turn.
+
+    ``rows`` are editor timeline rows (dicts with dub-clock ``start`` and a
+    ``speaker``); ``extra_cuts`` are additional boundaries (the editor's
+    manual cuts, already in the same dub clock). A new turn begins wherever
+    the speaker changes between consecutive segments, so the result matches
+    exactly where the editor's "slice at speaker changes" puts its cut lines.
+    Boundaries are rounded to 3 decimals — the same precision the timeline
+    route persists cuts with.
+
+    Returns turn dicts ``{index, start, end, speaker, text, original_text,
+    source_start, source_end}`` for every tile that contains at least one
+    segment (pure-silence tiles are not turns and are skipped). ``start``/
+    ``end`` are dub-clock (where the piece sits in ``dubbed_audio.wav``);
+    ``source_*`` is the min/max original-video range of the segments inside.
+    """
+    if duration <= 0 or not rows:
+        return []
+    ordered = sorted(rows, key=lambda r: float(r.get("start", 0.0)))
+    bounds = {0.0, round(float(duration), 3)}
+    prev = None
+    for r in ordered:
+        spk = r.get("speaker") or ""
+        if prev is not None and spk != prev:
+            b = round(float(r.get("start", 0.0)), 3)
+            if 0 < b < duration:
+                bounds.add(b)
+        prev = spk
+    for c in extra_cuts or ():
+        try:
+            c = round(float(c), 3)
+        except (TypeError, ValueError):
+            continue
+        if 0 < c < duration:
+            bounds.add(c)
+    bounds = sorted(bounds)
+
+    turns = []
+    for i in range(len(bounds) - 1):
+        a, b = bounds[i], bounds[i + 1]
+        # Membership uses the SAME 3dp rounding as the boundaries, so the
+        # segment that triggers a change starts its own turn (not the
+        # previous one) even when its raw start rounds across the edge.
+        inside = [r for r in ordered
+                  if a <= round(float(r.get("start", 0.0)), 3) < b]
+        # Keep a tile if ANY segment overlaps it, not just one starting in
+        # it: a manual cut mid-segment would otherwise drop that segment's
+        # tail speech from every file. Pure-silence tiles are not turns.
+        overlapping = [r for r in ordered
+                       if float(r.get("start", 0.0)) < b
+                       and float(r.get("start", 0.0)) + float(r.get("duration", 0.0)) > a]
+        if not overlapping:
+            continue
+        content = inside or overlapping
+        turns.append({
+            "index": len(turns),
+            "start": a,
+            "end": b,
+            "speaker": (content[0].get("speaker") or "SPEAKER_00"),
+            "text": " ".join(t for t in (r.get("text") or "" for r in content) if t),
+            "original_text": " ".join(t for t in (r.get("original_text") or "" for r in content) if t),
+            "source_start": min(float(r.get("source_start", 0.0)) for r in content),
+            "source_end": max(float(r.get("source_end", 0.0)) for r in content),
+        })
+    return turns
+
+
+def export_turn_wavs(turns: list, dubbed_path, out_dir) -> list:
+    """Slice ``dubbed_audio.wav`` into one WAV per turn, written to ``out_dir``.
+
+    Removes stale ``turn_*.wav`` from a previous export first (boundaries may
+    have moved after edits), then reads each turn's span straight from the
+    source file via seek — a 30-minute dub is never loaded whole. Slices are
+    clamped to the actual file length, so an export never fails just because
+    the rendered audio is slightly shorter than the video duration.
+
+    Returns the turn dicts augmented with ``file`` for every slice written;
+    turns whose span falls entirely past the end of the file are skipped
+    (logged) and absent from the result.
+    """
+    import soundfile as sf
+
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    for stale in out.glob("turn_*.wav"):
+        stale.unlink()
+
+    written = []
+    with sf.SoundFile(str(dubbed_path)) as fh:
+        sr = fh.samplerate
+        total = len(fh)
+        for turn in turns:
+            a = min(max(int(round(turn["start"] * sr)), 0), total)
+            b = min(max(int(round(turn["end"] * sr)), 0), total)
+            if b <= a:
+                log.warning(
+                    f"[turns] turn {turn['index']} "
+                    f"({turn['start']:.2f}-{turn['end']:.2f}s) lies beyond "
+                    f"{Path(dubbed_path).name} ({total / sr:.2f}s) — skipped"
+                )
+                continue
+            safe_spk = re.sub(r"[^A-Za-z0-9_]", "_", turn.get("speaker") or "") or "SILENCE"
+            name = (f"turn_{turn['index']:02d}_{turn['start']:.2f}"
+                    f"-{turn['end']:.2f}_{safe_spk}.wav")
+            fh.seek(a)
+            data = fh.read(b - a, dtype="float32")
+            sf.write(str(out / name), data, sr, subtype=fh.subtype)
+            written.append({**turn, "file": name})
+    return written

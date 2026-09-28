@@ -364,6 +364,33 @@ export function TimelinePanel({ job, onApplied }) {
     ...x, cuts: [...new Set([...(x.cuts || []), snapTime(t)])].sort((a, b) => a - b),
   }));
   const removeCut = (c) => setTimeline(x => ({ ...x, cuts: (x.cuts || []).filter(v => v !== c) }));
+  // One click places a cut at EVERY speaker-change point (the razor does one
+  // at a time). Union, not replace: manual cuts the user already placed stay.
+  const autoCuts = useMemo(
+    () => changePoints.filter(p => p > 0 && p < duration),
+    [changePoints, duration]
+  );
+  const sliceAtSpeakerChanges = () => setTimeline(x => ({
+    ...x,
+    cuts: [...new Set([...(x.cuts || []), ...autoCuts])].sort((a, b) => a - b),
+  }));
+  const clearCuts = () => setTimeline(x => ({ ...x, cuts: [] }));
+
+  // Per-turn WAV export: slices dubbed_audio.wav at the same boundaries the
+  // cut lines show (speaker changes + persisted manual cuts). Files land in
+  // the job's turns/ folder with a manifest.json for external editors.
+  const [turnExport, setTurnExport] = useState({ loading: false, error: null, files: null });
+  const exportTurns = async () => {
+    setTurnExport({ loading: true, error: null, files: null });
+    try {
+      const r = await fetch(`/api/dub/${job.id}/turns/export`, { method: 'POST' });
+      const d = await r.json();
+      if (!r.ok || d.error) throw new Error(d.error || 'Turn export failed');
+      setTurnExport({ loading: false, error: null, files: d.turns || [], count: d.count });
+    } catch (e) {
+      setTurnExport({ loading: false, error: e.message, files: null });
+    }
+  };
 
   if (!timeline) {
     return (
@@ -439,6 +466,18 @@ export function TimelinePanel({ job, onApplied }) {
         <button className="btn-ghost" onClick={() => addCutAt(playhead)} style={{ fontSize: 11, color: 'var(--ink-3)', border: '1px solid var(--line)', borderRadius: 4, padding: '4px 8px' }}>
           Cut at {fmtSec(playhead)}
         </button>
+        <button className="btn-ghost" onClick={sliceAtSpeakerChanges} disabled={!autoCuts.length}
+          title={`Place a cut at every speaker-change point (${autoCuts.length})`}
+          style={{ fontSize: 11, color: autoCuts.length ? 'var(--ink-2)' : 'var(--ink-4)', border: '1px solid var(--line)', borderRadius: 4, padding: '4px 8px', cursor: autoCuts.length ? 'pointer' : 'default' }}>
+          Slice at speaker changes{autoCuts.length ? ` (${autoCuts.length})` : ''}
+        </button>
+        {(timeline.cuts || []).length > 0 && (
+          <button className="btn-ghost" onClick={clearCuts}
+            title="Remove every cut marker"
+            style={{ fontSize: 11, color: 'var(--ink-3)', border: '1px solid var(--line)', borderRadius: 4, padding: '4px 8px' }}>
+            Clear cuts
+          </button>
+        )}
         <span className="mono" style={{ fontSize: 10, color: stemState === 'error' ? 'var(--err)' : 'var(--ink-4)' }}>
           {stemState === 'loading' ? 'preparing stems...'
             : stemState === 'error' ? 'stems unavailable - solo/mute are visual only'
@@ -604,12 +643,35 @@ export function TimelinePanel({ job, onApplied }) {
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 10 }}>
         <button className="btn btn-primary" disabled={saving} onClick={apply}>{saving ? 'Rebuilding timing…' : 'Apply timing to video'}</button>
+        <button className="btn-ghost" disabled={turnExport.loading} onClick={exportTurns}
+          title="Slice dubbed_audio.wav at the shown cut lines → one WAV per turn in turns/"
+          style={{ fontSize: 11, color: 'var(--ink-2)', border: '1px solid var(--line)', borderRadius: 4, padding: '5px 9px' }}>
+          {turnExport.loading ? 'Slicing…' : 'Export turn WAVs'}
+        </button>
         <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}>
-          Cuts: {(timeline.cuts || []).map(c => fmtSec(c)).join(', ') || 'none'}
+          {(() => {
+            const cs = timeline.cuts || [];
+            if (!cs.length) return 'Cuts: none';
+            return cs.length <= 6
+              ? `Cuts: ${cs.map(c => fmtSec(c)).join(', ')}`
+              : `Cuts: ${cs.length} (${cs.slice(0, 3).map(c => fmtSec(c)).join(', ')}, …)`;
+          })()}
         </span>
         <div style={{ flex: 1 }}/>
         <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}>{timeline.segments.length} segments · {speakers.length} speakers</span>
       </div>
+      {turnExport.files && (
+        <div className="mono" style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          <span style={{ color: 'var(--accent)' }}>{turnExport.count} turn WAVs → turns/</span>
+          {turnExport.files.slice(0, 8).map(t => (
+            <a key={t.file} href={t.url} download style={{ color: 'var(--ink-2)', textDecoration: 'underline' }}>
+              {fmtSec(t.start)} {niceSpeaker(t.speaker)}
+            </a>
+          ))}
+          {turnExport.files.length > 8 && <span>+{turnExport.files.length - 8} more</span>}
+        </div>
+      )}
+      {turnExport.error && <div style={{ color: 'var(--err)', fontSize: 11, marginTop: 8 }}>{turnExport.error}</div>}
       {error && <div style={{ color: 'var(--err)', fontSize: 11, marginTop: 10 }}>{error}</div>}
     </div>
   );

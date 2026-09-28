@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Slice at speaker changes** (dialogue editor): one click places a cut at
+  every point where the speaker changes — the razor still adds single cuts,
+  and manual cuts are kept (union). "Clear cuts" removes them all; the cuts
+  summary collapses past 6 markers. Cuts persist with the existing timeline
+  save and are included in the turn export.
+- **Per-turn WAV export** (`GET/POST /api/dub/{id}/turns`): slices
+  `dubbed_audio.wav` into one WAV per speaker turn under `turns/`, named
+  `turn_NN_start-end_SPEAKER_xx.wav` with a `manifest.json` (speaker, both
+  clocks, source + translated text, download URL) for external editors.
+  Boundaries are the same points the editor's cut lines show (speaker
+  changes + saved manual cuts); pure-silence gaps are not turns. Re-export
+  replaces the previous slices; spans past the end of the rendered file are
+  clamped (and skipped with a warning when entirely beyond it). Slices read
+  via seek, so a 30-minute dub never loads whole (`pipeline/media.py`:
+  `plan_speaker_turns()`, `export_turn_wavs()`; timeline row building
+  extracted to `_timeline_rows()` so plan and export share the editor's
+  exact boundaries).
+
+### Changed
+
 - **Stem split runs first, for every job** (`pipeline/audio.py` →
   `build_speech_track()`): audio is separated into speech + background stems
   *before* denoise/VAD/transcription, so Whisper, diarization and speaker-ref
@@ -22,9 +42,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   is installed, with a warning instead of silence. demucs promoted to an
   active dependency in `requirements.txt`; the System → Add-ons card now
   reports whether any separator is available (`check_separator()`).
-
-### Changed
-
 - Home form hint for "Keep background audio" now reflects that stem split
   always runs and the toggle only controls the final mix.
 

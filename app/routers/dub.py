@@ -42,6 +42,8 @@ from pipeline.assembler import (
     speakers_in_segments,
     write_srt,
 )
+from pipeline.media import export_turn_wavs as _export_turn_wavs
+from pipeline.media import plan_speaker_turns as _plan_speaker_turns
 from pipeline.media import trim_video as _trim_video
 from pipeline.media import waveform_peaks as _waveform_peaks
 from pipeline.showcase import (
@@ -886,12 +888,14 @@ async def retranslate(
 
 
 
-@router.get("/api/dub/{job_id}/timeline")
-async def get_dub_timeline(job_id: str):
-    """Return existing rendered segments as movable timeline clips."""
-    cp = _load_checkpoint(job_id, "tts_done")
-    if not cp:
-        return JSONResponse({"error": "Timeline requires a completed TTS pass"}, 404)
+def _timeline_rows(job_id: str, cp: dict) -> list:
+    """Editor rows: one per segment with rendered audio, dub-clock start.
+
+    Shared by GET /timeline and the turn exporter so the WAV slices land on
+    exactly the boundaries the editor shows. ``start`` is where the clip sits
+    in the dubbed track (user drag > recorded placement > source time);
+    source_* fields stay on the original video clock.
+    """
     import soundfile as sf
     placement_map = {row.get("idx"): row for row in _load_placements(OUTPUT_DIR / job_id)}
     rows = []
@@ -915,6 +919,16 @@ async def get_dub_timeline(job_id: str):
             "source_end": float(seg.get("end", 0.0)),
             "duration": round(clip_duration, 4),
         })
+    return rows
+
+
+@router.get("/api/dub/{job_id}/timeline")
+async def get_dub_timeline(job_id: str):
+    """Return existing rendered segments as movable timeline clips."""
+    cp = _load_checkpoint(job_id, "tts_done")
+    if not cp:
+        return JSONResponse({"error": "Timeline requires a completed TTS pass"}, 404)
+    rows = _timeline_rows(job_id, cp)
     dubbed_wav = OUTPUT_DIR / job_id / "dubbed_audio.wav"
     peaks = _waveform_peaks(dubbed_wav) if dubbed_wav.exists() else []
     # Source dialogue (the original audio), for the editor's top lane.
@@ -984,6 +998,88 @@ async def apply_dub_timeline(job_id: str, placements: str = Form(...), cuts: str
     except Exception as exc:
         log.error(f"[timeline] {job_id} rebuild failed: {exc}", exc_info=True)
         return JSONResponse({"error": str(exc)}, 500)
+
+
+def _turn_plan(job_id: str, cp: dict) -> list:
+    """Speaker-turn slices for the editor, in the dub clock.
+
+    Boundaries = speaker changes (the same points the editor's auto-slice
+    uses) plus any manual timeline cuts, so exported WAVs match the regions
+    the user actually sees between cut lines.
+    """
+    rows = _timeline_rows(job_id, cp)
+    return _plan_speaker_turns(rows, float(cp.get("duration", 0.0)),
+                               cp.get("timeline_cuts") or [])
+
+
+def _exported_turns(job_id: str) -> list:
+    """Turns already written to disk (from turns/manifest.json), else []."""
+    manifest = OUTPUT_DIR / job_id / "turns" / "manifest.json"
+    if not manifest.exists():
+        return []
+    try:
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        turns = data.get("turns", [])
+        return turns if isinstance(turns, list) else []
+    except Exception as e:
+        log.warning(f"[turns] unreadable manifest for {job_id}: {e}")
+        return []
+
+
+@router.get("/api/dub/{job_id}/turns")
+async def get_speaker_turns(job_id: str):
+    """Plan of speaker-turn slices (no files written) + any existing export."""
+    cp = _load_checkpoint(job_id, "tts_done")
+    if not cp:
+        return JSONResponse({"error": "Turns require a completed TTS pass"}, 404)
+    return {
+        "job_id": job_id,
+        "duration": float(cp.get("duration", 0.0)),
+        "turns": _turn_plan(job_id, cp),
+        "exported": _exported_turns(job_id),
+    }
+
+
+@router.post("/api/dub/{job_id}/turns/export")
+async def export_speaker_turns(job_id: str):
+    """Slice dubbed_audio.wav into one WAV per turn under turns/.
+
+    Rewrites turns/manifest.json with the resulting files so external
+    editors get both the audio and where each piece belongs on the
+    timeline. Idempotent: re-exporting replaces the previous slices.
+    """
+    if job_id not in jobs:
+        return JSONResponse({"error": "Job not found"}, 404)
+    cp = _load_checkpoint(job_id, "tts_done")
+    if not cp:
+        return JSONResponse({"error": "Turns require a completed TTS pass"}, 404)
+    plan = _turn_plan(job_id, cp)
+    if not plan:
+        return JSONResponse({"error": "No rendered segments to slice"}, 400)
+    work = OUTPUT_DIR / job_id
+    dubbed_wav = work / "dubbed_audio.wav"
+    if not dubbed_wav.exists():
+        return JSONResponse(
+            {"error": "No dubbed_audio.wav yet — apply timing or finish the job first"}, 404)
+    try:
+        written = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: _export_turn_wavs(plan, dubbed_wav, work / "turns"))
+    except Exception as exc:
+        log.error(f"[turns] {job_id} export failed: {exc}", exc_info=True)
+        return JSONResponse({"error": str(exc)}, 500)
+    for row in written:
+        row["url"] = f"/outputs/{job_id}/turns/{row['file']}"
+    manifest = {
+        "job_id": job_id,
+        "source": "dubbed_audio.wav",
+        "generated_at": time.time(),
+        "turns": written,
+    }
+    (work / "turns" / "manifest.json").write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+    log.info(f"[turns] {job_id}: exported {len(written)}/{len(plan)} turn WAVs")
+    return {"ok": True, "count": len(written), "planned": len(plan),
+            "turns": written, "dir": f"/outputs/{job_id}/turns/"}
 
 
 
