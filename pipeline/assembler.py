@@ -94,6 +94,14 @@ def _atempo_stretch(wav_path: str, speed: float) -> str:
         return wav_path
     # atempo only accepts 0.5-2.0; chain for extremes (we cap at 1.15 anyway)
     out = wav_path + f".{speed:.2f}x.wav"
+    # The main mix and then every speaker stem stretch the SAME clips to the
+    # SAME speed — reuse a previous stretch unless the source was re-synthesized
+    # (per-segment regen rewrites the clip, making it newer than the stretch).
+    try:
+        if os.path.exists(out) and os.path.getmtime(out) >= os.path.getmtime(wav_path):
+            return out
+    except OSError:
+        pass
     try:
         subprocess.run(
             ["ffmpeg", "-y", "-i", wav_path,
@@ -413,7 +421,8 @@ def speakers_in_segments(segments) -> list:
     return sorted(found)
 
 
-def assemble_speaker_stems(segments, total_duration, out_dir, sample_rate=48000, only=None) -> dict:
+def assemble_speaker_stems(segments, total_duration, out_dir, sample_rate=48000,
+                           only=None, fit_to_slots=False) -> dict:
     """Write one full-length WAV per speaker under ``out_dir``.
 
     Each stem places only that speaker's clips, using the placement the
@@ -421,6 +430,11 @@ def assemble_speaker_stems(segments, total_duration, out_dir, sample_rate=48000,
     ``use_recorded=True``), so the stems line up with ``dubbed_audio.wav`` and
     summing them reproduces the dialogue. Deliberately NOT loudness-normalised
     per stem — the editor's solo/mute would otherwise change the level balance.
+
+    ``fit_to_slots`` must match the flag the main mix was assembled with:
+    it changes the time-stretch cap (1.40 vs 1.15), and a mismatched cap
+    makes an overlong clip stretch to a different tempo than the mix it is
+    supposed to sum with.
 
     Returns ``{speaker: Path}``.
     """
@@ -433,6 +447,26 @@ def assemble_speaker_stems(segments, total_duration, out_dir, sample_rate=48000,
         assemble_dubbed_audio(
             subset, total_duration, str(out),
             sample_rate=sample_rate, apply_loudnorm=False, use_recorded=True,
+            fit_to_slots=fit_to_slots,
         )
         paths[spk] = out
     return paths
+
+
+def refresh_speaker_stems(segments, total_duration, out_dir, sample_rate=48000,
+                          fit_to_slots=False) -> dict:
+    """Re-render every speaker stem, best-effort — never raises.
+
+    Called wherever ``dubbed_audio.wav`` is rebuilt (fresh pipeline, resume/
+    retry/regen, timeline apply) so the editor's solo/mute lanes and any
+    export always see the CURRENT placements. Stems are an editing aid: if
+    rendering fails we log and carry on — the on-demand stem route can still
+    retry later.
+    """
+    try:
+        return assemble_speaker_stems(segments, total_duration, out_dir,
+                                      sample_rate=sample_rate,
+                                      fit_to_slots=fit_to_slots)
+    except Exception as e:
+        log.warning(f"[stems] refresh failed for {out_dir}: {type(e).__name__}: {e}")
+        return {}

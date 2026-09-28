@@ -17,7 +17,12 @@ from app.queue import JobCancelled
 from app.state import jobs, save_job
 from app.tts import get_tts_engine, terminate_tts_worker
 from app.voices import resolve_voice_config
-from pipeline.assembler import assemble_dubbed_audio, merge_audio_video, write_srt
+from pipeline.assembler import (
+    assemble_dubbed_audio,
+    merge_audio_video,
+    refresh_speaker_stems,
+    write_srt,
+)
 from pipeline.audio import (
     build_speech_track,
     extract_audio,
@@ -663,6 +668,14 @@ async def run_pipeline(
         )
         save_placements(work, segments)
 
+        # Always-on per-speaker stems: render while placements are fresh so
+        # the editor's solo/mute and any export are ready the moment the job
+        # completes (best-effort — see refresh_speaker_stems).
+        update(progress=91, step_detail="Rendering speaker stems...")
+        refresh_speaker_stems(segments, duration, work,
+                              sample_rate=tts.sample_rate,
+                              fit_to_slots=isinstance(tts, QwenTTSEngine))
+
         # 8. Merge with video
         update(status="merging", progress=93, step_detail="Rendering final video...")
         output_mp4 = str(work / "dubbed_video.mp4")
@@ -906,6 +919,12 @@ async def _run_tts_and_merge_stage(
         tail_audio_path=tail_src if isinstance(tts, QwenTTSEngine) else "",
     )
     save_placements(work, segments)
+
+    # Always-on stems: same as the fresh path — placements just changed.
+    update(progress=91, step_detail="Rendering speaker stems...")
+    refresh_speaker_stems(segments, state["duration"], work,
+                          sample_rate=tts.sample_rate,
+                          fit_to_slots=isinstance(tts, QwenTTSEngine))
 
     update(status="merging", progress=93, step_detail="Rendering final video...")
     output_mp4 = str(work / "dubbed_video.mp4")

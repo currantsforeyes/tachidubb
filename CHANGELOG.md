@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Always-on per-speaker stems**: every path that rebuilds `dubbed_audio.wav`
+  (fresh pipeline, resume/retry/per-segment regen, editor "Apply timing") now
+  re-renders all `stem_SPEAKER_XX.wav` files right after placements are saved
+  (`refresh_speaker_stems()` — best-effort: a stem failure logs a warning
+  instead of failing a finished job). Previously stems were generated only on
+  first mixer use, so solo/mute silently played **stale audio after dragging
+  clips**. The editor's "Export stems" button (`POST /api/dub/{id}/stems/export`)
+  renders any missing stems, writes `stems_manifest.json` (per-clip positions
+  on the dub clock — drop the WAV at 0 and read placements straight off it —
+  plus source ranges and both texts) and returns download links; `GET /stems`
+  now reports `export_url` + `manifest_exists`.
+  - `fit_to_slots` now threads into `assemble_speaker_stems`: Qwen mixes
+    (1.40 stretch cap) previously got stems built with the 1.15 cap, so an
+    overlong clip's stem played at a *different tempo* than the mix it sums
+    with. The on-demand stem route also passes the job's `sample_rate`
+    (Qwen jobs were rendered at 48k vs the mix's 24k) — export re-renders
+    wrong-rate stems from older jobs.
+  - `_atempo_stretch` reuses an existing stretch when the source clip hasn't
+    changed (the main mix and every stem stretch the same clips), rebuilding
+    only after a per-segment regen rewrites the source.
+
 - **Slice at speaker changes** (dialogue editor): one click places a cut at
   every point where the speaker changes — the razor still adds single cuts,
   and manual cuts are kept (union). "Clear cuts" removes them all; the cuts

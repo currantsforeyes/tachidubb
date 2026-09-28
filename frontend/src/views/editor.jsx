@@ -392,6 +392,21 @@ export function TimelinePanel({ job, onApplied }) {
     }
   };
 
+  // Per-speaker stem export: ensures every full-length stem is rendered and
+  // writes stems_manifest.json (clip positions, both clocks, both texts).
+  const [stemExport, setStemExport] = useState({ loading: false, error: null, result: null });
+  const exportStems = async () => {
+    setStemExport({ loading: true, error: null, result: null });
+    try {
+      const r = await fetch(`/api/dub/${job.id}/stems/export`, { method: 'POST' });
+      const d = await r.json();
+      if (!r.ok || d.error) throw new Error(d.error || 'Stem export failed');
+      setStemExport({ loading: false, error: null, result: d });
+    } catch (e) {
+      setStemExport({ loading: false, error: e.message, result: null });
+    }
+  };
+
   if (!timeline) {
     return (
       <div className="mono" style={{ fontSize: 11, color: loadFailed ? 'var(--err)' : 'var(--ink-3)', padding: '10px 0' }}>
@@ -648,6 +663,11 @@ export function TimelinePanel({ job, onApplied }) {
           style={{ fontSize: 11, color: 'var(--ink-2)', border: '1px solid var(--line)', borderRadius: 4, padding: '5px 9px' }}>
           {turnExport.loading ? 'Slicing…' : 'Export turn WAVs'}
         </button>
+        <button className="btn-ghost" disabled={stemExport.loading} onClick={exportStems}
+          title="Render every speaker's full-length stem + stems_manifest.json (clip positions, both clocks, both texts)"
+          style={{ fontSize: 11, color: 'var(--ink-2)', border: '1px solid var(--line)', borderRadius: 4, padding: '5px 9px' }}>
+          {stemExport.loading ? 'Rendering…' : 'Export stems'}
+        </button>
         <span className="mono" style={{ fontSize: 10, color: 'var(--ink-4)' }}>
           {(() => {
             const cs = timeline.cuts || [];
@@ -672,6 +692,22 @@ export function TimelinePanel({ job, onApplied }) {
         </div>
       )}
       {turnExport.error && <div style={{ color: 'var(--err)', fontSize: 11, marginTop: 8 }}>{turnExport.error}</div>}
+      {stemExport.result && (
+        <div className="mono" style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+          <span style={{ color: 'var(--accent)' }}>
+            {stemExport.result.count} stems + manifest → job folder
+          </span>
+          {stemExport.result.stems.map(s => (
+            <a key={s.speaker} href={s.url} download style={{ color: 'var(--ink-2)', textDecoration: 'underline' }}>
+              {niceSpeaker(s.speaker)}
+            </a>
+          ))}
+          <a href={stemExport.result.manifest_url} download style={{ color: 'var(--ink-4)', textDecoration: 'underline' }}>
+            manifest.json
+          </a>
+        </div>
+      )}
+      {stemExport.error && <div style={{ color: 'var(--err)', fontSize: 11, marginTop: 8 }}>{stemExport.error}</div>}
       {error && <div style={{ color: 'var(--err)', fontSize: 11, marginTop: 10 }}>{error}</div>}
     </div>
   );

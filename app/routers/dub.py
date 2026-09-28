@@ -39,6 +39,7 @@ from pipeline.assembler import (
     assemble_dubbed_audio,
     assemble_speaker_stems,
     merge_audio_video,
+    refresh_speaker_stems,
     speakers_in_segments,
     write_srt,
 )
@@ -987,6 +988,11 @@ async def apply_dub_timeline(job_id: str, placements: str = Form(...), cuts: str
             if is_qwen else "",
         )
         _save_placements(work, cp["segments"])
+        # Dragging clips moved them: re-render the stems too, or solo/mute
+        # would play the OLD positions (best-effort, see refresh_speaker_stems).
+        refresh_speaker_stems(cp["segments"], cp["duration"], work,
+                              sample_rate=cp.get("sample_rate", 48000),
+                              fit_to_slots=is_qwen)
         merge_audio_video(cp["video_path"], dubbed_wav, str(work / "dubbed_video.mp4"),
                           cp.get("bg_audio_path", "") if cp.get("keep_bg") else "")
         _save_checkpoint(job_id, work, stage="tts_done", data=cp)
@@ -1203,6 +1209,8 @@ async def list_speaker_stems(job_id: str):
     work = OUTPUT_DIR / job_id
     return {
         "job_id": job_id,
+        "export_url": f"/api/dub/{job_id}/stems/export",
+        "manifest_exists": (work / "stems_manifest.json").exists(),
         "stems": [
             {
                 "speaker": spk,
@@ -1234,9 +1242,18 @@ async def get_speaker_stem(job_id: str, speaker: str):
     if not path.exists():
         try:
             duration = float(cp.get("duration", 0.0))
+            # fit_to_slots/sample_rate must match how the main mix was built:
+            # a mismatched stretch cap gives this stem a different tempo than
+            # dubbed_audio.wav, and a mismatched rate an awkward import.
+            is_qwen = any(str(s.get("tts_tier", "")).startswith("qwen3")
+                          for s in segs)
             await asyncio.get_event_loop().run_in_executor(
                 None,
-                lambda: assemble_speaker_stems(segs, duration, work, only=speaker),
+                lambda: assemble_speaker_stems(
+                    segs, duration, work, only=speaker,
+                    sample_rate=cp.get("sample_rate", 48000),
+                    fit_to_slots=is_qwen,
+                ),
             )
         except Exception as e:
             log.warning(f"[stems] generation failed for {job_id}/{speaker}: {e}")
@@ -1245,3 +1262,112 @@ async def get_speaker_stem(job_id: str, speaker: str):
         return JSONResponse({"error": "Stem generation produced no file"}, 500)
     return FileResponse(str(path), media_type="audio/wav",
                         filename=f"stem_{speaker}.wav")
+
+
+def _stem_manifest_rows(job_id: str, cp: dict) -> dict:
+    """speaker -> [{idx, start, end, source_start, source_end, text, ...}].
+
+    ``start``/``end`` are where the clip sits in the stem (drag > recorded
+    placement > source time — the same clock ``_timeline_rows`` and
+    ``assemble_speaker_stems(use_recorded=True)`` use), so an external editor
+    can drop the WAV at 0 and read positions straight from the manifest.
+    """
+    placed = {int(s.get("idx", i)): s
+              for i, s in enumerate(_segments_with_placements(job_id, cp))}
+    by_speaker = {}
+    for row in _timeline_rows(job_id, cp):
+        seg = placed.get(row["idx"], {})
+        end = seg.get("placed_end")
+        if end is None:
+            end = row["start"] + row["duration"]
+        by_speaker.setdefault(row["speaker"], []).append({
+            "idx": row["idx"],
+            "start": round(row["start"], 3),
+            "end": round(float(end), 3),
+            "source_start": row["source_start"],
+            "source_end": row["source_end"],
+            "text": row["text"],
+            "original_text": row["original_text"],
+        })
+    return by_speaker
+
+
+@router.post("/api/dub/{job_id}/stems/export")
+async def export_speaker_stems(job_id: str):
+    """Ensure every per-speaker stem is rendered + write stems_manifest.json.
+
+    Only MISSING stems are generated — freshness is guaranteed by the
+    always-on refresh at every dub rebuild (fresh run, retry/regen,
+    timeline apply), so repeat exports are cheap. Returns download links
+    for the editor; the WAVs and manifest also land in the job folder
+    (served under /outputs/).
+    """
+    if job_id not in jobs:
+        return JSONResponse({"error": "Job not found"}, 404)
+    cp = _load_checkpoint(job_id, "tts_done")
+    if not cp:
+        return JSONResponse({"error": "Stems require a completed TTS pass"}, 404)
+    segs = _segments_with_placements(job_id, cp)
+    speakers = speakers_in_segments(segs)
+    if not speakers:
+        return JSONResponse({"error": "No rendered segments to export"}, 400)
+
+    work = OUTPUT_DIR / job_id
+    duration = float(cp.get("duration", 0.0))
+    sample_rate = cp.get("sample_rate", 48000)
+    is_qwen = any(str(s.get("tts_tier", "")).startswith("qwen3") for s in segs)
+    # Render if missing OR if an older stem was rendered at the wrong rate
+    # (the on-demand route used to default to 48k regardless of the job).
+    import soundfile as sf
+    def _needs_render(spk: str) -> bool:
+        p = work / f"stem_{spk}.wav"
+        if not p.exists():
+            return True
+        try:
+            return sf.info(str(p)).samplerate != sample_rate
+        except Exception:
+            return True
+    missing = [spk for spk in speakers if _needs_render(spk)]
+    if missing:
+        try:
+            for spk in missing:
+                await asyncio.get_event_loop().run_in_executor(
+                    None, lambda spk=spk: assemble_speaker_stems(
+                        segs, duration, work, only=spk,
+                        sample_rate=sample_rate, fit_to_slots=is_qwen))
+        except Exception as exc:
+            log.error(f"[stems] export generation failed for {job_id}: {exc}",
+                      exc_info=True)
+            return JSONResponse({"error": f"Stem generation failed: {exc}"}, 500)
+
+    by_speaker = _stem_manifest_rows(job_id, cp)
+    manifest = {
+        "job_id": job_id,
+        "duration": duration,
+        "sample_rate": sample_rate,
+        "generated_at": time.time(),
+        "stems": [
+            {
+                "speaker": spk,
+                "file": f"stem_{spk}.wav",
+                "clips": by_speaker.get(spk, []),
+            }
+            for spk in speakers
+        ],
+    }
+    (work / "stems_manifest.json").write_text(
+        json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+    log.info(f"[stems] {job_id}: exported {len(speakers)} stems "
+             f"({len(missing)} freshly rendered) + manifest")
+    return {
+        "ok": True,
+        "count": len(speakers),
+        "manifest_url": f"/outputs/{job_id}/stems_manifest.json",
+        "dir": f"/outputs/{job_id}/",
+        "stems": [
+            {"speaker": spk,
+             "file": f"stem_{spk}.wav",
+             "url": f"/api/dub/{job_id}/stem/{spk}/audio"}
+            for spk in speakers
+        ],
+    }
