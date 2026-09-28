@@ -123,6 +123,13 @@ export function WaveformLane({ peaks, duration, pxPerSec, height = 56, activeKey
 export function TimelinePanel({ job, onApplied }) {
   const [timeline, setTimeline] = useState(null);
   const [dragging, setDragging] = useState(null);
+  // Cut markers in *insertion* order. `timeline.cuts` is sorted, which throws
+  // away the order they were placed in — this stack is what "Undo cut" pops.
+  const [cutHistory, setCutHistory] = useState([]);
+  // Live section drag: { sec, originX, moved, delta, members, minStart, maxEnd }.
+  // `members` is frozen at pointer-down so a clip can't switch sections
+  // mid-gesture and escape the drag.
+  const [sectionDrag, setSectionDrag] = useState(null);
   const [scrubbing, setScrubbing] = useState(false);
   const [playhead, setPlayhead] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -360,21 +367,118 @@ export function TimelinePanel({ job, onApplied }) {
     }
     return Number(best.toFixed(3));
   };
-  const addCutAt = (t) => setTimeline(x => ({
-    ...x, cuts: [...new Set([...(x.cuts || []), snapTime(t)])].sort((a, b) => a - b),
-  }));
-  const removeCut = (c) => setTimeline(x => ({ ...x, cuts: (x.cuts || []).filter(v => v !== c) }));
+  const addCutAt = (t) => {
+    const cut = snapTime(t);
+    if ((timeline?.cuts || []).includes(cut)) return;  // don't pollute the undo stack
+    setTimeline(x => ({ ...x, cuts: [...new Set([...(x.cuts || []), cut])].sort((a, b) => a - b) }));
+    setCutHistory(h => [...h, cut]);
+  };
+  const removeCut = (c) => {
+    setTimeline(x => ({ ...x, cuts: (x.cuts || []).filter(v => v !== c) }));
+    setCutHistory(h => h.filter(v => v !== c));
+  };
   // One click places a cut at EVERY speaker-change point (the razor does one
   // at a time). Union, not replace: manual cuts the user already placed stay.
   const autoCuts = useMemo(
     () => changePoints.filter(p => p > 0 && p < duration),
     [changePoints, duration]
   );
-  const sliceAtSpeakerChanges = () => setTimeline(x => ({
-    ...x,
-    cuts: [...new Set([...(x.cuts || []), ...autoCuts])].sort((a, b) => a - b),
-  }));
-  const clearCuts = () => setTimeline(x => ({ ...x, cuts: [] }));
+  const sliceAtSpeakerChanges = () => {
+    const fresh = autoCuts.filter(c => !(timeline?.cuts || []).includes(c));
+    if (!fresh.length) return;
+    setTimeline(x => ({
+      ...x,
+      cuts: [...new Set([...(x.cuts || []), ...autoCuts])].sort((a, b) => a - b),
+    }));
+    // Record the whole batch as one undoable step's worth of markers: Undo cut
+    // takes them back one at a time, Clear cuts takes the lot.
+    setCutHistory(h => [...h, ...fresh]);
+  };
+  const clearCuts = () => {
+    setTimeline(x => ({ ...x, cuts: [] }));
+    setCutHistory([]);
+  };
+  const canUndo = (timeline?.cuts || []).some(c => cutHistory.includes(c));
+  // Take back the newest marker that is still on screen. Stale history entries
+  // (already removed by clicking a marker) are skipped rather than no-opping.
+  const undoCut = () => {
+    const live = timeline?.cuts || [];
+    let i = cutHistory.length - 1;
+    while (i >= 0 && !live.includes(cutHistory[i])) i--;
+    if (i < 0) return;
+    const cut = cutHistory[i];
+    setCutHistory(cutHistory.slice(0, i));
+    setTimeline(x => ({ ...x, cuts: (x.cuts || []).filter(v => v !== cut) }));
+  };
+
+  // ── Sections: the audio between two cuts ──────────────────────────────────
+  // Blocks tile the timeline whenever at least one cut exists. Dragging one
+  // moves every clip that starts inside it by the same delta — non-ripple:
+  // neighbours never move, so a gap/silence opens exactly where you dragged.
+  // The result is the same placements payload "Apply timing to video" already
+  // persists, so no backend change is needed.
+  const sections = useMemo(() => {
+    if (!timeline) return [];
+    const cuts = [...new Set((timeline.cuts || []).filter(c => c > 0 && c < duration))]
+      .sort((a, b) => a - b);
+    if (!cuts.length) return [];
+    const bounds = [0, ...cuts, duration];
+    return bounds.slice(0, -1)
+      .map((a, i) => ({ i, a, b: bounds[i + 1] }))
+      .filter(s => s.b - s.a > 1e-6);
+  }, [timeline, duration]);
+
+  // A clip belongs to the section containing its start; the last section is
+  // closed so a clip starting exactly at `duration` is never orphaned.
+  const membersOf = (sec) => {
+    const last = sec.i === sections.length - 1;
+    return (timeline?.segments || []).filter(s =>
+      s.start >= sec.a - 1e-6 && (last || s.start < sec.b - 1e-6));
+  };
+
+  const sectionDown = (e, sec) => {
+    if (tool === 'razor') return;
+    e.stopPropagation();  // the lane's scrub handler must not also fire
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+    const members = membersOf(sec).map(s => ({
+      idx: s.idx, start: s.start, end: s.start + (s.duration || 0),
+    }));
+    setSectionDrag({
+      sec: sec.i, originX: e.clientX, moved: false, delta: 0, members,
+      minStart: members.length ? Math.min(...members.map(m => m.start)) : sec.a,
+      maxEnd: members.length ? Math.max(...members.map(m => m.end)) : sec.b,
+    });
+  };
+
+  const sectionMove = (e) => {
+    if (!sectionDrag) return;
+    const dx = e.clientX - sectionDrag.originX;
+    if (!sectionDrag.moved && Math.abs(dx) < 3) return;  // a tap, not a drag
+    // Clamp to the timeline: the moved audio may overlap a neighbour (clips
+    // already drag freely) but must never start before 0 or run past the end.
+    let delta = dx / pxPerSec;
+    delta = Math.max(-sectionDrag.minStart,
+                     Math.min(duration - sectionDrag.maxEnd, delta));
+    delta = Math.round(delta * 1000) / 1000;
+    const origin = new Map(sectionDrag.members.map(m => [m.idx, m.start]));
+    setSectionDrag(d => (d ? { ...d, moved: true, delta } : d));
+    setTimeline(t => ({
+      ...t,
+      segments: t.segments.map(s => (origin.has(s.idx)
+        ? { ...s, start: Math.round((origin.get(s.idx) + delta) * 1000) / 1000 }
+        : s)),
+    }));
+  };
+
+  const sectionUp = (e) => {
+    if (!sectionDrag) return;
+    try { e.currentTarget.releasePointerCapture(e.pointerId); } catch {}
+    const dragged = sectionDrag.moved;
+    setSectionDrag(null);
+    // Without movement the gesture was a click on the waveform: seek, so
+    // placing a block over the lane doesn't cost the user scrubbing.
+    if (!dragged) seekTo(timeFromEvent(e.clientX));
+  };
 
   // Per-turn WAV export: slices dubbed_audio.wav at the same boundaries the
   // cut lines show (speaker changes + persisted manual cuts). Files land in
@@ -487,11 +591,18 @@ export function TimelinePanel({ job, onApplied }) {
           Slice at speaker changes{autoCuts.length ? ` (${autoCuts.length})` : ''}
         </button>
         {(timeline.cuts || []).length > 0 && (
-          <button className="btn-ghost" onClick={clearCuts}
-            title="Remove every cut marker"
-            style={{ fontSize: 11, color: 'var(--ink-3)', border: '1px solid var(--line)', borderRadius: 4, padding: '4px 8px' }}>
-            Clear cuts
-          </button>
+          <>
+            <button className="btn-ghost" onClick={undoCut} disabled={!canUndo}
+              title="Remove the most recently placed cut"
+              style={{ fontSize: 11, color: canUndo ? 'var(--ink-3)' : 'var(--ink-4)', border: '1px solid var(--line)', borderRadius: 4, padding: '4px 8px', opacity: canUndo ? 1 : 0.45, cursor: canUndo ? 'pointer' : 'default' }}>
+              Undo cut
+            </button>
+            <button className="btn-ghost" onClick={clearCuts}
+              title="Remove every cut marker"
+              style={{ fontSize: 11, color: 'var(--ink-3)', border: '1px solid var(--line)', borderRadius: 4, padding: '4px 8px' }}>
+              Clear cuts
+            </button>
+          </>
         )}
         <span className="mono" style={{ fontSize: 10, color: stemState === 'error' ? 'var(--err)' : 'var(--ink-4)' }}>
           {stemState === 'loading' ? 'preparing stems...'
@@ -672,15 +783,70 @@ export function TimelinePanel({ job, onApplied }) {
                       padding: '0 5px', overflow: 'hidden', whiteSpace: 'nowrap',
                     }}>{ED.link} {videoName} · {fmtSec(b - a)}</div>
                   )}
+                  {/* Section blocks — the slices between cut lines, drawn over
+                      the dubbed waveform so you drag the audio itself. In
+                      razor mode they step aside (pointer-events: none) so
+                      clicking a lane still cuts; in select mode a tap seeks
+                      and a drag moves the slice. */}
+                  {sections.map(sec => {
+                    const active = !!sectionDrag && sectionDrag.sec === sec.i;
+                    const dragging = active && sectionDrag.moved;
+                    return (
+                      <div key={'sec' + sec.i}
+                        onPointerDown={e => sectionDown(e, sec)}
+                        onPointerMove={sectionMove}
+                        onPointerUp={sectionUp}
+                        onPointerCancel={sectionUp}
+                        title={`Section ${sec.i + 1} of ${sections.length} — drag to move its audio, click to seek`}
+                        style={{
+                          position: 'absolute', top: 0, bottom: 0,
+                          left: sec.a * pxPerSec,
+                          width: Math.max(2, (sec.b - sec.a) * pxPerSec - 1),
+                          background: active
+                            ? 'oklch(0.7 0.09 300 / 0.34)'
+                            : (sec.i % 2 ? 'oklch(0.7 0.09 300 / 0.10)' : 'oklch(0.7 0.09 300 / 0.05)'),
+                          borderLeft: '1px solid var(--line-2)',
+                          cursor: tool === 'razor' ? 'crosshair' : (dragging ? 'grabbing' : 'grab'),
+                          pointerEvents: tool === 'razor' ? 'none' : 'auto',
+                          zIndex: 2, touchAction: 'none',
+                        }}
+                      >
+                        {dragging && (
+                          <div className="mono" style={{
+                            position: 'absolute', left: 4, top: 4, fontSize: 10, padding: '1px 5px',
+                            borderRadius: 3, background: 'var(--bg-2)', border: '1px solid var(--accent)',
+                            color: 'var(--ink)', whiteSpace: 'nowrap', pointerEvents: 'none',
+                          }}>
+                            {sectionDrag.delta >= 0 ? '+' : ''}{sectionDrag.delta.toFixed(2)}s
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               );
             })}
 
-            {/* Cuts + playhead overlay */}
+            {/* Cuts + playhead overlay.
+
+                The 2px line alone is far too small a target to hit with a
+                mouse — which is why misplaced cuts felt impossible to undo.
+                Each cut now carries a × chip up on the ruler: a 15px box you
+                can actually aim at. The line stays clickable too. */}
             {(timeline.cuts || []).map(c => (
               <div key={'c' + c} onClick={() => removeCut(c)} title={'Cut at ' + fmtSec(c) + ' — click to remove'} style={{
                 position: 'absolute', left: c * pxPerSec, top: 0, bottom: 0, width: 2, background: 'var(--warn)', cursor: 'pointer', zIndex: 4,
-              }}/>
+              }}>
+                <div
+                  onClick={(e) => { e.stopPropagation(); removeCut(c); }}
+                  title={'Remove cut at ' + fmtSec(c)}
+                  style={{
+                    position: 'absolute', left: -7, top: 1, width: 15, height: 14,
+                    borderRadius: 3, background: 'var(--bg-2)', border: '1px solid var(--warn)',
+                    color: 'var(--warn)', fontSize: 10, lineHeight: '12px', textAlign: 'center',
+                    cursor: 'pointer', zIndex: 7,
+                  }}>✕</div>
+              </div>
             ))}
             <div style={{ position: 'absolute', left: playhead * pxPerSec, top: 0, bottom: 0, width: 2, background: 'var(--err)', zIndex: 5, pointerEvents: 'none' }}/>
             <div style={{ position: 'absolute', left: playhead * pxPerSec - 5, top: 0, width: 10, height: 9, background: 'var(--err)', clipPath: 'polygon(0 0, 100% 0, 50% 100%)', zIndex: 6, pointerEvents: 'none' }}/>

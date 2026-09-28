@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Draggable audio sections in the dialogue editor**: cutting the track now
+  does more than drop markers. The span between two cut lines becomes a
+  *section* drawn straight over the dubbed waveform — grab it and drag to move
+  every clip inside it by the same amount, so a slice can be nudged into sync
+  with the picture. The move is **non-ripple**: neighbours never shift, and a
+  gap opens exactly where you dragged (clips may overlap, as they already
+  could when dragged one at a time). A live `+0.42s` badge shows the offset,
+  the drag clamps to `[0, duration]`, and positions land in the placements
+  payload "Apply timing to video" already saves — no backend change. A tap on
+  a section still seeks (so covering the waveform doesn't cost scrubbing), and
+  in razor mode the blocks step aside (`pointer-events: none`) so clicking a
+  lane still cuts.
+
 - **Always-on per-speaker stems**: every path that rebuilds `dubbed_audio.wav`
   (fresh pipeline, resume/retry/per-segment regen, editor "Apply timing") now
   re-renders all `stem_SPEAKER_XX.wav` files right after placements are saved
@@ -81,6 +94,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Misplaced cut markers can be taken back.** The only way to remove a cut
+  was clicking the 2px line itself — a target you could not reliably hit — and
+  a bulk "Slice at speaker changes" had no inverse at all. Each cut now
+  carries a `✕` chip up on the ruler (15px, actually hittable) and a new
+  **Undo cut** button removes the most recently placed marker (auto-slices
+  come back one at a time; the undo stack stays in step with markers removed
+  by hand; **Clear cuts** still removes everything).
 - **Dubbed audio now syncs with the video.** The VAD filter (`apply_vad_filter`)
   concatenates speech regions with `atrim`+`concat` before Whisper, so every
   timestamp downstream — transcript, diarization, SRT, TTS placement, the
