@@ -346,7 +346,10 @@ export function SysStorage() {
 
   const execute = async () => {
     if (!previewResult) return;
-    if (!confirm(`Delete ${previewResult.affected_count || 0} job(s) freeing ${previewResult.freed_mb?.toFixed(1) || '?'} MB?`)) return;
+    // The API's response keys are `affected` / `mb_freed` (see
+    // app/routers/storage.py) — reading the wrong names made every confirm
+    // say "0 job(s) freeing ? MB", so the button looked broken.
+    if (!confirm(`Delete ${previewResult.affected ?? 0} job(s), freeing ${previewResult.mb_freed ?? '?'} MB?`)) return;
     setBusy(true);
     try {
       const fd = new FormData();
@@ -380,15 +383,17 @@ export function SysStorage() {
         <div style={{ padding: 18, background: 'var(--bg-1)', border: '1px solid var(--line)', borderRadius: 10 }}>
           <div className="caps" style={{ marginBottom: 10 }}>Cleanup rules</div>
           <div style={{ marginBottom: 10 }}>
-            <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 5 }}>Delete files older than</div>
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 5 }}>
+              {olderThan === 0 ? 'Delete files of any age' : 'Delete files older than'}
+            </div>
             <div style={{ display: 'flex', gap: 4 }}>
-              {[1, 7, 30, 90].map(d => (
+              {[0, 1, 7, 30, 90].map(d => (
                 <button key={d} onClick={() => { setOlderThan(d); setPreviewResult(null); }} className="btn" style={{
                   flex: 1, padding: '5px 8px', fontSize: 11,
                   borderColor: olderThan === d ? 'var(--accent)' : 'var(--line)',
                   background: olderThan === d ? 'var(--bg-2)' : 'var(--bg-1)',
                   color: olderThan === d ? 'var(--ink)' : 'var(--ink-3)',
-                }}>{d}d</button>
+                }}>{d === 0 ? 'All' : `${d}d`}</button>
               ))}
             </div>
           </div>
@@ -416,12 +421,17 @@ export function SysStorage() {
           {previewResult && (
             <div style={{ marginTop: 10, padding: 10, background: 'var(--bg-2)', border: '1px solid var(--line-2)', borderRadius: 6 }}>
               <div style={{ fontSize: 11.5, color: 'var(--ink-2)', marginBottom: 6 }}>
-                Would delete <span className="mono" style={{ color: 'var(--ink)' }}>{previewResult.affected_count || 0}</span> job(s),
-                free <span className="mono" style={{ color: 'var(--accent)' }}>{previewResult.freed_mb?.toFixed(1) || '?'} MB</span>
+                Would delete <span className="mono" style={{ color: 'var(--ink)' }}>{previewResult.affected ?? 0}</span> job(s),
+                free <span className="mono" style={{ color: 'var(--accent)' }}>{previewResult.mb_freed ?? '?'} MB</span>
               </div>
-              <button onClick={execute} disabled={busy} className="btn" style={{ width: '100%', justifyContent: 'center', color: 'var(--err)', borderColor: 'oklch(0.7 0.2 25 / 0.4)' }}>
+              <button onClick={execute} disabled={busy || !(previewResult.affected > 0)} className="btn" style={{ width: '100%', justifyContent: 'center', color: 'var(--err)', borderColor: 'oklch(0.7 0.2 25 / 0.4)', opacity: previewResult.affected > 0 ? 1 : 0.5 }}>
                 {I.trash} {busy ? 'Deleting…' : 'Execute cleanup'}
               </button>
+              {!(previewResult.affected > 0) && (
+                <div style={{ fontSize: 10, color: 'var(--ink-4)', marginTop: 5, textAlign: 'center' }}>
+                  Nothing matches these rules — try “All” or a larger age.
+                </div>
+              )}
             </div>
           )}
         </div>

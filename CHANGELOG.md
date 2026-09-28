@@ -69,6 +69,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   installed correctly so built-in audio decoding will fail"* — cosmetic on
   Windows static-FFmpeg installs (pyannote falls back to soundfile; nothing
   breaks), with the one-time shared-FFmpeg-DLL fix.
+- **Dialogue editor reference lanes reordered**: the top audio lane is now the
+  *separated source speech* (`GET /timeline` → `speech_peaks`, the `vocals.wav`
+  stem — original language, never the translation), the lane below it the
+  *separated background* (`bg_peaks`, `background.wav`), then the two text
+  lanes and the translated speaker tracks. Jobs that predate always-on stem
+  split stay honest instead of passing the mix off as a stem: `speech_stem:
+  false` shows a "full mix" badge on the speech lane, and an empty `bg_peaks`
+  shows "no stem" plus an empty-lane note. `source_peaks` is still served for
+  older consumers.
 
 ### Fixed
 
@@ -99,6 +108,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   if `tail_start` falls beyond the tail file's end — the symptom of two
   different clocks meeting — the tail is skipped with a warning naming both
   durations instead of silently ending the dub seconds before the video.
+- **Storage cleanup buttons work again** (System → Storage). The preview and
+  the execute confirmation read `affected_count` / `freed_mb`, keys the server
+  never emits (`POST /api/storage/cleanup` returns `affected` / `mb_freed`),
+  so every run reported "0 job(s), ? MB" and the controls looked dead — even
+  though deletion itself would have worked. A new **All** age preset posts
+  `older_than_days=0`: the previous minimum of 1 day excluded anything created
+  today, which is why there seemed to be no way to clear recent generations.
+  Execute is now disabled with a hint when the preview matches nothing.
 
 ## [0.4.0] - 2026-09-27
 
