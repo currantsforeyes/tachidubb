@@ -442,6 +442,20 @@ Linux/macOS: `sudo apt install ffmpeg` or `brew install ffmpeg`. Windows: the in
 </details>
 
 <details>
+<summary><b>Warning: "torchcodec is not installed correctly so built-in audio decoding will fail"</b></summary>
+
+**Cosmetic — nothing is broken.** pyannote warns once at startup because `torchcodec` (an optional decoder, installed as a dependency of `pyannote-audio`/`whisperx`/`voxcpm`) can't load: its DLLs need the *shared* FFmpeg 7 libraries, and Windows installs a **static** FFmpeg (compiled-in, no `avcodec-61.dll` etc. on disk). The pipeline falls back to soundfile/tensor decoding — diarization, transcription and TTS all work normally.
+
+To silence it, give torchcodec the DLLs it wants (one-time):
+1. Download `ffmpeg-n7.1.x-latest-win64-gpl-shared-7.1.zip` from <https://github.com/BtbN/FFmpeg-Builds/releases> — any FFmpeg **7 shared** build works (torchcodec 0.7 links `avcodec-61`)
+2. Copy every `av*.dll`, `sw*.dll` and `postproc-58.dll` from the zip's `bin/` into `venv\Lib\site-packages\torchcodec\`
+3. Restart the server — the warning is gone and `TORCHCODEC_AVAILABLE=True`
+
+The copy is isolated to that folder (your `ffmpeg` CLI is untouched) and gets redone if you reinstall the venv.
+
+</details>
+
+<details>
 <summary><b>Showcase reel renders all black / no audio</b></summary>
 
 Usually one of the child dubs failed silently. `python tools/tachidubb_cli.py showcase-status <batch_id>` shows which language failed. Rerun with `tachidubb showcase-rebuild <batch_id>` after fixing the failing job — it skips re-dubbing the successful ones.

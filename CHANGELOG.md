@@ -65,6 +65,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reports whether any separator is available (`check_separator()`).
 - Home form hint for "Keep background audio" now reflects that stem split
   always runs and the toggle only controls the final mix.
+- README troubleshooting documents the startup warning *"torchcodec is not
+  installed correctly so built-in audio decoding will fail"* — cosmetic on
+  Windows static-FFmpeg installs (pyannote falls back to soundfile; nothing
+  breaks), with the one-time shared-FFmpeg-DLL fix.
 
 ### Fixed
 
