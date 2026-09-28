@@ -930,22 +930,36 @@ async def get_dub_timeline(job_id: str):
     if not cp:
         return JSONResponse({"error": "Timeline requires a completed TTS pass"}, 404)
     rows = _timeline_rows(job_id, cp)
-    dubbed_wav = OUTPUT_DIR / job_id / "dubbed_audio.wav"
+    work = OUTPUT_DIR / job_id
+    dubbed_wav = work / "dubbed_audio.wav"
     peaks = _waveform_peaks(dubbed_wav) if dubbed_wav.exists() else []
-    # Source dialogue (the original audio), for the editor's top lane.
-    # audio_full = full-length original clock; audio_16k may be the
-    # time-compressed VAD output, which would misalign the lane vs video.
+    # Full original mix (original clock; audio_16k may be the time-compressed
+    # VAD output, which would misalign the lane vs video). Kept for API
+    # compatibility and as the fallback below.
     source_wav = Path(
         cp.get("audio_full")
         or cp.get("audio_16k")
-        or (OUTPUT_DIR / job_id / "audio_16k.wav")
+        or (work / "audio_16k.wav")
     )
     source_peaks = _waveform_peaks(source_wav) if source_wav.exists() else []
+    # Lane 1 = separated speech stem (original language, NOT translated);
+    # jobs without stems fall back to the full mix and speech_stem says so,
+    # so the editor can be honest about what it is showing.
+    speech_wav = work / "vocals.wav"
+    speech_peaks = (_waveform_peaks(speech_wav) if speech_wav.exists()
+                    else source_peaks)
+    # Lane 2 = separated background (music/SFX); absent for jobs that
+    # predate always-on stem split, silent for the legacy fallback jobs.
+    bg_wav = work / "background.wav"
+    bg_peaks = _waveform_peaks(bg_wav) if bg_wav.exists() else []
     return {
         "duration": float(cp.get("duration", 0.0)), "segments": rows,
         "cuts": cp.get("timeline_cuts", []),
         "peaks": peaks,
         "source_peaks": source_peaks,
+        "speech_peaks": speech_peaks,
+        "speech_stem": speech_wav.exists(),
+        "bg_peaks": bg_peaks,
         "source_video_url": f"/outputs/{job_id}/source_video.mp4",
         "dubbed_video_url": f"/outputs/{job_id}/dubbed_video.mp4",
         "source_audio_url": f"/outputs/{job_id}/audio_16k.wav",

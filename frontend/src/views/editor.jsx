@@ -532,7 +532,18 @@ export function TimelinePanel({ job, onApplied }) {
           <div style={{ ...headerRow(RULER_H), justifyContent: 'flex-start' }}>
             <span className="mono" style={{ fontSize: 17, color: 'var(--ink)', letterSpacing: '-0.02em' }}>{fmtTimecode(playhead)}</span>
           </div>
-          <div style={{ ...headerRow(WAVE_H), fontSize: 11.5, color: 'var(--ink-4)' }}>Original Audio</div>
+          <div style={{ ...headerRow(WAVE_H), justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 11.5, color: 'var(--ink-4)' }}>Source Speech</span>
+            {!timeline.speech_stem && (
+              <span className="mono" style={{ fontSize: 9, color: 'var(--ink-4)' }}>full mix</span>
+            )}
+          </div>
+          <div style={{ ...headerRow(WAVE_H), justifyContent: 'space-between' }}>
+            <span style={{ fontSize: 11.5, color: 'var(--ink-4)' }}>Background</span>
+            {!timeline.bg_peaks?.length && (
+              <span className="mono" style={{ fontSize: 9, color: 'var(--ink-4)' }}>no stem</span>
+            )}
+          </div>
           <div style={{ ...headerRow(TEXT_H), fontSize: 11.5, color: 'var(--ink-3)' }}>Original Text</div>
           <div style={{ ...headerRow(TR_H), fontSize: 11.5, color: 'var(--ink-2)' }}>Translated Text</div>
           {speakers.map(spk => {
@@ -569,7 +580,10 @@ export function TimelinePanel({ job, onApplied }) {
               ))}
             </div>
 
-            {/* Original audio lane - the source dialogue, for reference */}
+            {/* Lane 1 — separated source speech: the original language audio
+                (NOT translated), so the reference sits directly above the
+                translated tracks. Jobs without stems fall back to the full
+                mix server-side; speech_stem tells the UI which it is. */}
             <div
               onPointerDown={scrubDown}
               onPointerMove={scrubMove}
@@ -577,8 +591,26 @@ export function TimelinePanel({ job, onApplied }) {
               style={{ ...rowStyle(WAVE_H), cursor: tool === 'razor' ? 'crosshair' : 'ew-resize', touchAction: 'none' }}
             >
               <div style={{ position: 'absolute', left: 0, top: 2 }}>
-                <WaveformLane peaks={timeline.source_peaks} duration={duration} pxPerSec={pxPerSec} height={WAVE_H - 8} color="oklch(0.62 0.02 250)"/>
+                <WaveformLane peaks={timeline.speech_peaks ?? timeline.source_peaks} duration={duration} pxPerSec={pxPerSec} height={WAVE_H - 8} color="oklch(0.62 0.02 250)"/>
               </div>
+            </div>
+
+            {/* Lane 2 — separated background (music/SFX), kept apart from the
+                speech so the dub can be judged against the original bed. */}
+            <div
+              onPointerDown={scrubDown}
+              onPointerMove={scrubMove}
+              onPointerUp={scrubUp}
+              style={{ ...rowStyle(WAVE_H), cursor: tool === 'razor' ? 'crosshair' : 'ew-resize', touchAction: 'none' }}
+            >
+              <div style={{ position: 'absolute', left: 0, top: 2 }}>
+                <WaveformLane peaks={timeline.bg_peaks} duration={duration} pxPerSec={pxPerSec} height={WAVE_H - 8} color="oklch(0.7 0.09 300)"/>
+              </div>
+              {!timeline.bg_peaks?.length && (
+                <div style={{ position: 'absolute', left: 8, top: 19, fontSize: 10, color: 'var(--ink-4)' }}>
+                  No separated background for this job
+                </div>
+              )}
             </div>
 
             {/* Original Text lane */}
