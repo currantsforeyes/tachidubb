@@ -34,6 +34,9 @@ ignore = [
 # app/main.py must import after the speechbrain/k2 stub + FFmpeg DLL bootstrap.
 "server.py" = ["E402"]
 "app/main.py" = ["E402"]
+# Bootstraps sys.path so it can be spawned from any cwd (the OpenShot add-on
+# launches it with OpenShot's working directory).
+"tools/dub_worker.py" = ["E402"]
 # Package-level convenience re-exports are the module's public surface.
 "pipeline/__init__.py" = ["F401"]
 

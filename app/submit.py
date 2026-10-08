@@ -66,12 +66,20 @@ async def create_file_job(
     batch_label: str = "",
     scheduled_at: float = 0.0,
     job_id: Optional[str] = None,
+    enqueue: bool = True,
 ) -> str:
     """Create and (unless scheduled) enqueue a dub job for a local file.
 
     Returns the job id. A ``scheduled_at`` more than 10s in the future parks
     the job as ``status="scheduled"`` with its pipeline args stashed so the
     queue's scheduler can pick it up later.
+
+    ``enqueue=False`` builds the record and stashes its pipeline args in
+    ``_pending_args`` but leaves it off the queue — for a runner that has no
+    queue at all (``tools/dub_worker.py`` spawns in its own process and drives
+    ``run_pipeline`` directly, reading those args back out). The scheduler only
+    ever claims ``status="scheduled"`` jobs, so parked args can't be picked up
+    by mistake.
     """
     jid = job_id or uuid.uuid4().hex[:8]
     src = str(source_path)
@@ -113,12 +121,14 @@ async def create_file_job(
         "batch_label": batch_label,
         "created": time.time(),
         "scheduled_at": scheduled_at if is_scheduled else 0,
-        "_pending_args": pipeline_args if is_scheduled else None,
+        "_pending_args": pipeline_args if (is_scheduled or not enqueue) else None,
     }
     save_job(jobs[jid])
 
     if is_scheduled:
         log.info(f"[submit] Job {jid} scheduled for {scheduled_at}")
-    else:
+    elif enqueue:
         await enqueue_job(jid, pipeline_args)
+    else:
+        log.info(f"[submit] Job {jid} created for an external runner")
     return jid

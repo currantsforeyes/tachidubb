@@ -83,6 +83,22 @@ def test_create_file_job_scheduled_is_not_enqueued(capture, tmp_path):
     assert capture["enqueued"] == []
 
 
+def test_create_file_job_without_enqueue_parks_args(capture, tmp_path):
+    """The serverless worker has no queue: it records the job, then runs it
+    itself from the stashed args. Nothing may be pushed onto the queue."""
+    src = tmp_path / "c.mp4"
+    src.write_bytes(b"x")
+
+    jid = _run(submit.create_file_job(
+        src, target_lang="fr", model="m", enqueue=False))
+
+    job = capture["jobs"][jid]
+    assert job["status"] == "queued"
+    assert job["_pending_args"]["target_lang"] == "fr"
+    assert job["_pending_args"]["source"] == str(src)
+    assert capture["enqueued"] == []
+
+
 # ── resolve_model ────────────────────────────────────────────────────
 def test_resolve_model_falls_back_when_missing(monkeypatch):
     async def fake_check(url=""):
