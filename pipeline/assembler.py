@@ -10,6 +10,14 @@ log = logging.getLogger("tachidubb.assembler")
 # between consecutive TTS outputs from VoxCPM2 when fed different reference clips).
 PER_SEGMENT_PEAK = 0.7
 
+# How far a clip may be SLOWED DOWN to fill the subtitle window it was
+# translated for (see assemble_dubbed_audio). The translation usually says the
+# line in less time than the original took — measured on 30 recent segments,
+# 77% were short and filling them needed a median 1.35x slowdown. Capping here
+# keeps the stretch mild; past ~1.4x speech starts to sound drawn out, so the
+# remainder is left as a gap rather than smeared.
+UNDERTIME_MAX_SLOWDOWN = 1.35
+
 # EBU R128 loudnorm targets (broadcast-safe, closer to YouTube spec)
 LN_I = -16      # integrated loudness LUFS
 LN_TP = -1.5    # true peak dBTP
@@ -118,7 +126,7 @@ def _atempo_stretch(wav_path: str, speed: float) -> str:
 def assemble_dubbed_audio(segments, total_duration, output_path,
                            sample_rate=48000, apply_loudnorm=True,
                            fit_to_slots=False, tail_audio_path="",
-                           use_recorded=False):
+                           use_recorded=False, full_length=False):
     """Place each TTS segment at its original timestamp (numpy-based mix).
 
     ``use_recorded`` re-uses the placement the pipeline already saved
@@ -134,6 +142,21 @@ def assemble_dubbed_audio(segments, total_duration, output_path,
       segment's slot — slight overlap sounds FAR better than the chipmunk
       effect from aggressive pitch-shift.
     - Total audio may exceed total_duration; caller should NOT use -shortest.
+
+    Handling of UNDERTIME segments — the far more common case: the
+    translation says the line in less time than the original took (77% of
+    segments in a 30-segment sample), so the voice stops while the
+    character is still talking:
+    - Slow the clip down via atempo (pitch preserved) so it covers its
+      window, capped at ``UNDERTIME_MAX_SLOWDOWN`` — past ~1.4x the
+      stretch itself is audible and the line sounds drawn out. Whatever
+      the cap leaves over stays a gap; it never stretches past the slot,
+      so downstream placement cannot drift.
+
+    ``full_length=True`` writes exactly ``total_duration`` seconds
+    (padding the tail with silence) instead of trimming to the last clip.
+    Used by the per-speaker stems: they are dropped at t=0 and must be as
+    long as the timeline they belong to, or the track ends mid-video.
 
     Qwen's reference-cloning output includes more natural pauses than the
     source. ``fit_to_slots`` uses pitch-preserving tempo adjustment up to
@@ -202,6 +225,18 @@ def assemble_dubbed_audio(segments, total_duration, output_path,
                 # let audio spill over into next slot (better than chipmunk).
                 speed = min(tts_dur / slot_dur, max_stretch)
                 if speed > 1.02:
+                    stretched_path = _atempo_stretch(audio_path, speed)
+                    stretched_count += 1
+            elif slot_dur > 0.2 and tts_dur < slot_dur:
+                # The line came out SHORTER than the original took to say, so
+                # left alone the voice stops while the character is still
+                # talking — and with fit_to_slots the next clip is anchored to
+                # its own start, so nothing ever closes the hole. Slow this
+                # clip down to cover its window, but only within
+                # UNDERTIME_MAX_SLOWDOWN: new duration lands between
+                # tts_dur and slot_dur, so it can never overrun the slot.
+                speed = max(tts_dur / slot_dur, 1.0 / UNDERTIME_MAX_SLOWDOWN)
+                if speed < 0.98:  # _atempo_stretch ignores <2% anyway
                     stretched_path = _atempo_stretch(audio_path, speed)
                     stretched_count += 1
 
@@ -307,8 +342,12 @@ def assemble_dubbed_audio(segments, total_duration, output_path,
         except Exception as exc:
             log.warning(f"Could not restore source ambience tail: {exc}")
 
-    # Trim trailing silence beyond last actual audio (keep small tail)
-    if current_end > 0 and current_end + (0.0 if restored_source_tail else 0.5) < target_duration:
+    # Trim trailing silence beyond last actual audio (keep small tail).
+    # full_length callers (the per-speaker stems) need exactly the timeline's
+    # length instead — they get padded with silence out to total_duration.
+    if full_length and total_duration > 0:
+        mix = mix[:int(total_duration * sample_rate)]
+    elif current_end > 0 and current_end + (0.0 if restored_source_tail else 0.5) < target_duration:
         final_duration = current_end if restored_source_tail else current_end + 0.5
         mix = mix[:int(final_duration * sample_rate)]
 
@@ -425,6 +464,11 @@ def assemble_speaker_stems(segments, total_duration, out_dir, sample_rate=48000,
                            only=None, fit_to_slots=False) -> dict:
     """Write one full-length WAV per speaker under ``out_dir``.
 
+    "Full length" is literal: each stem is exactly ``total_duration`` long,
+    padded with silence past that speaker's last clip, so it drops in at t=0
+    and lines up with the timeline (previously the stem was trimmed to 0.5s
+    after the speaker's own last word — up to seconds short of the video).
+
     Each stem places only that speaker's clips, using the placement the
     pipeline already recorded (:func:`assemble_dubbed_audio` with
     ``use_recorded=True``), so the stems line up with ``dubbed_audio.wav`` and
@@ -447,7 +491,7 @@ def assemble_speaker_stems(segments, total_duration, out_dir, sample_rate=48000,
         assemble_dubbed_audio(
             subset, total_duration, str(out),
             sample_rate=sample_rate, apply_loudnorm=False, use_recorded=True,
-            fit_to_slots=fit_to_slots,
+            fit_to_slots=fit_to_slots, full_length=True,
         )
         paths[spk] = out
     return paths

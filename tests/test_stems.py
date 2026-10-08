@@ -76,3 +76,31 @@ def test_stems_only_renders_requested_speaker(tmp_path):
     ]
     paths = assemble_speaker_stems(segs, 1.0, tmp_path, sample_rate=SR, only="SPEAKER_01")
     assert set(paths) == {"SPEAKER_01"}
+
+
+def test_stems_span_the_whole_timeline(tmp_path):
+    """A stem is dropped at t=0, so it must be as long as the timeline.
+
+    It used to be trimmed to 0.5s after that speaker's own last clip —
+    SPEAKER_01's stem was 1.0s in a 5.0s job — so the track ended mid-video
+    and stems no longer lined up with dubbed_audio.wav.
+    """
+    a0 = _tone(tmp_path / "a0.wav", 0.3)
+    a1 = _tone(tmp_path / "a1.wav", 0.3, freq=660.0)
+    segs = [
+        {"speaker": "SPEAKER_00", "audio_path": a0, "start": 0.0, "end": 0.3,
+         "placed_start": 0.0, "placed_end": 0.3},
+        {"speaker": "SPEAKER_01", "audio_path": a1, "start": 0.3, "end": 0.6,
+         "placed_start": 0.3, "placed_end": 0.6},
+    ]
+
+    paths = assemble_speaker_stems(segs, 5.0, tmp_path, sample_rate=SR)
+
+    for path in paths.values():
+        assert sf.info(str(path)).frames == int(5.0 * SR), \
+            f"{path.name} must span the whole timeline, not just its own clips"
+
+    s1, _ = sf.read(str(paths["SPEAKER_01"]))
+    assert _rms(s1[:int(0.25 * SR)]) < 1e-6        # silence before they speak
+    assert _rms(s1[int(1.0 * SR):]) < 1e-6         # silence after, to the end
+    assert len(s1) == int(5.0 * SR)

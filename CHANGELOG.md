@@ -94,6 +94,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The dubbed voice now covers the line it was translated for.** The
+  assembler only ever compensated for TTS that came out *longer* than its
+  subtitle window (sped it up, capped); there was no branch for the far more
+  common case of audio coming out *shorter* — measured over 30 recent
+  segments, **77% were short** — so the voice stopped while the character was
+  still talking and, with `fit_to_slots`, nothing ever closed the hole.
+  Undertime clips are now slowed down (pitch preserved) to cover their
+  window, capped at `UNDERTIME_MAX_SLOWDOWN = 1.35`: beyond that the stretch
+  itself is audible and the line sounds drawn out, so the remainder is left
+  as a gap rather than smeared. The stretch can never exceed the slot, so
+  placement cannot drift. On a real job this took dead air (source speaking,
+  voice track silent) from **3.50s to 1.75s** — clip coverage 74%→99%,
+  92%→100%, 55%→75% — with ffmpeg producing the stretches the old code
+  silently skipped.
+- **Per-speaker stems are actually full length.** `assemble_speaker_stems`
+  promises "one full-length WAV per speaker", but the assembler trimmed every
+  file to 0.5s after *that speaker's* last clip — `stem_SPEAKER_00/01/02.wav`
+  were 24.42s / 11.39s / 5.83s in a 26.96s job. A stem is meant to drop in at
+  t=0 and line up with the timeline (and with `dubbed_audio.wav`), so it now
+  passes `full_length=True` and is padded with silence out to exactly
+  `total_duration` — all three are 26.960s.
 - **Misplaced cut markers can be taken back.** The only way to remove a cut
   was clicking the 2px line itself — a target you could not reliably hit — and
   a bulk "Slice at speaker changes" had no inverse at all. Each cut now
