@@ -1,0 +1,18 @@
+{
+  "runtime_root": "D:\\tachidubb",
+  "python": "D:\\tachidubb\\venv\\Scripts\\python.exe",
+  "worker": "tools/dub_worker.py",
+  "comfy_output": "",
+  "model": "aya-expanse:8b",
+  "whisper_model": "large-v3",
+  "tts_speed": "balanced",
+  "keep_bg": true,
+  "narration_mode": false,
+  "outputs": [
+    "vocals.wav",
+    "background.wav",
+    "stem_*.wav",
+    "dubbed_video.mp4",
+    "subtitles.srt"
+  ]
+}
