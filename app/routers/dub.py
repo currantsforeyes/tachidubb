@@ -51,6 +51,7 @@ from pipeline.showcase import (
     load_placements as _load_placements,
     save_placements as _save_placements,
 )
+from pipeline.synthesizer import segments_anchored
 from pipeline.translator import check_ollama
 
 log = logging.getLogger("tachidubb.routes.dub")
@@ -992,21 +993,21 @@ async def apply_dub_timeline(job_id: str, placements: str = Form(...), cuts: str
         if idx in starts:
             seg["timeline_start"] = starts[idx]
     cp["timeline_cuts"] = cut_points
-    is_qwen = any(str(seg.get("tts_tier", "")).startswith("qwen3") for seg in cp["segments"])
+    anchored = segments_anchored(cp["segments"])
     try:
         dubbed_wav = str(work / "dubbed_audio.wav")
         assemble_dubbed_audio(
             cp["segments"], cp["duration"], dubbed_wav, cp.get("sample_rate", 48000),
-            apply_loudnorm=True, fit_to_slots=is_qwen,
+            apply_loudnorm=True, fit_to_slots=anchored,
             tail_audio_path=(cp.get("audio_full") or cp.get("audio_16k", ""))
-            if is_qwen else "",
+            if anchored else "",
         )
         _save_placements(work, cp["segments"])
         # Dragging clips moved them: re-render the stems too, or solo/mute
         # would play the OLD positions (best-effort, see refresh_speaker_stems).
         refresh_speaker_stems(cp["segments"], cp["duration"], work,
                               sample_rate=cp.get("sample_rate", 48000),
-                              fit_to_slots=is_qwen)
+                              fit_to_slots=anchored)
         merge_audio_video(cp["video_path"], dubbed_wav, str(work / "dubbed_video.mp4"),
                           cp.get("bg_audio_path", "") if cp.get("keep_bg") else "")
         _save_checkpoint(job_id, work, stage="tts_done", data=cp)
@@ -1259,14 +1260,13 @@ async def get_speaker_stem(job_id: str, speaker: str):
             # fit_to_slots/sample_rate must match how the main mix was built:
             # a mismatched stretch cap gives this stem a different tempo than
             # dubbed_audio.wav, and a mismatched rate an awkward import.
-            is_qwen = any(str(s.get("tts_tier", "")).startswith("qwen3")
-                          for s in segs)
+            anchored = segments_anchored(segs)
             await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: assemble_speaker_stems(
                     segs, duration, work, only=speaker,
                     sample_rate=cp.get("sample_rate", 48000),
-                    fit_to_slots=is_qwen,
+                    fit_to_slots=anchored,
                 ),
             )
         except Exception as e:
@@ -1329,7 +1329,7 @@ async def export_speaker_stems(job_id: str):
     work = OUTPUT_DIR / job_id
     duration = float(cp.get("duration", 0.0))
     sample_rate = cp.get("sample_rate", 48000)
-    is_qwen = any(str(s.get("tts_tier", "")).startswith("qwen3") for s in segs)
+    anchored = segments_anchored(segs)
     # Render if missing OR if an older stem was rendered at the wrong rate
     # (the on-demand route used to default to 48k regardless of the job).
     import soundfile as sf
@@ -1348,7 +1348,7 @@ async def export_speaker_stems(job_id: str):
                 await asyncio.get_event_loop().run_in_executor(
                     None, lambda spk=spk: assemble_speaker_stems(
                         segs, duration, work, only=spk,
-                        sample_rate=sample_rate, fit_to_slots=is_qwen))
+                        sample_rate=sample_rate, fit_to_slots=anchored))
         except Exception as exc:
             log.error(f"[stems] export generation failed for {job_id}: {exc}",
                       exc_info=True)

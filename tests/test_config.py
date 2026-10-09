@@ -69,3 +69,22 @@ def test_load_config_missing_file_uses_defaults(tmp_path, monkeypatch):
     monkeypatch.delenv("WHISPER_MODEL", raising=False)
 
     assert config._load_config().whisper_model == "large-v3"
+
+
+def test_env_is_loaded_before_config_builds_its_singleton():
+    """app/config.py reads os.environ while building its module-level ``cfg``.
+
+    app/main.py therefore has to load .env *before* importing it — otherwise
+    every setting documented in .env.example (HF_TOKEN, OLLAMA_URL,
+    TACHIDUBB_TTS_ENGINE, the ComfyUI root) is read too late and silently
+    ignored, which is how it behaved before this ordering was fixed.
+    """
+    import re
+    from pathlib import Path
+
+    src = (Path(__file__).resolve().parents[1] / "app" / "main.py").read_text(
+        encoding="utf-8")
+    call = re.search(r"^_load_dotenv_simple\(\)\s*$", src, re.M)
+    assert call, "the .env loader must be called at module level"
+    assert call.start() < src.index("from app.config import BASE"), (
+        ".env must be loaded before app.config is imported, or cfg never sees it")

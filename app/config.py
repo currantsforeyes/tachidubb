@@ -78,9 +78,17 @@ class UserConfig:
     voxcpm_steps: int = 10              # 5–20
 
     # ── TTS ───────────────────────────────────────────────────────────
-    tts_engine: str = "voxcpm"           # "qwen" | "voxcpm" | "f5tts" | "edge-tts"
+    tts_engine: str = "voxcpm"           # "firered" | "qwen" | "voxcpm" | "f5tts" | "edge-tts"
     tts_speed: str = "balanced"          # "fast" | "balanced" | "quality"
     warmup_on_start: bool = False        # pre-load VoxCPM at server start
+
+    # FireRedTTS3 runs its worker on **ComfyUI's Python** (Transformers 5.3+
+    # and the INT8 weights live there; ours must stay on 4.57 so whisperx /
+    # pyannote keep working). An empty root makes the engine probe
+    # TACHIDUBB_COMFY_ROOT and a few well-known install paths.
+    firered_comfy_root: str = ""
+    firered_repo: str = "FireRedTTS3-int8"     # "-int8" (3.3 GB) | "-bf16" | FireRedTTS3-fp32
+    firered_variant: str = "fireredtts3_base"  # "...base" (cloning) | "...instruct"
 
     # ── UI behaviour ──────────────────────────────────────────────────
     open_browser: bool = True
@@ -132,6 +140,9 @@ def _load_config() -> UserConfig:
         "VOXCPM_CFG": "voxcpm_cfg",
         "VOXCPM_STEPS": "voxcpm_steps",
         "TACHIDUBB_TTS_ENGINE": "tts_engine",
+        "TACHIDUBB_COMFY_ROOT": "firered_comfy_root",
+        "TACHIDUBB_FIRERED_REPO": "firered_repo",
+        "TACHIDUBB_FIRERED_VARIANT": "firered_variant",
         "OLLAMA_URL": "ollama_url",
         "TACHIDUBB_TRANSLATION_MODE": "translation_mode",
         "TACHIDUBB_TRANSLATION_BACKEND": "translation_backend",

@@ -1,8 +1,9 @@
 """TTS engine factory + GPU memory cleanup.
 
-Selection follows ``cfg.tts_engine`` preference, falling back through the tier
-chain (Qwen / VoxCPM2 / F5-TTS / Edge-TTS) when a higher tier isn't installed.
-The chosen engine is cached process-wide.
+Selection follows ``cfg.tts_engine`` preference — ``firered`` (FireRedTTS3, a
+worker running on ComfyUI's Python), ``qwen``, then the fallback tier chain
+(VoxCPM2 → F5-TTS → Edge-TTS) when a higher tier isn't installed or fails to
+load. The chosen engine is cached process-wide.
 
 Extracted from ``server.py`` so routes in ``app/routers`` can obtain an engine
 without importing the application module.
@@ -14,6 +15,7 @@ from app.config import cfg
 from pipeline.synthesizer import (
     EdgeTTSFallback,
     F5TTSEngine,
+    FireRedTTSEngine,
     QwenTTSEngine,
     VoxCPMSynthesizer,
 )
@@ -83,7 +85,25 @@ def get_tts_engine():
         return _tts_engine
     free_gpu_memory()
 
-    requested = cfg.tts_engine  # "qwen" | "voxcpm" | "f5tts" | "edge-tts"
+    requested = cfg.tts_engine  # "firered" | "qwen" | "voxcpm" | "f5tts" | "edge-tts"
+
+    # FireRedTTS3: explicitly requested only, and it borrows ComfyUI's Python —
+    # if ComfyUI or its node pack is missing we fall through to the tier chain
+    # rather than taking the app down with an install problem.
+    if requested == "firered":
+        try:
+            _tts_engine = FireRedTTSEngine(
+                comfy_root=cfg.firered_comfy_root or None,
+                repo=cfg.firered_repo,
+                variant=cfg.firered_variant,
+            )
+            _tts_engine.load()
+            log.info(f"TTS engine: FireRedTTS3 {cfg.firered_repo} "
+                     f"(worker on ComfyUI's Python)")
+            atexit.register(lambda: _tts_engine.unload() if _tts_engine else None)
+            return _tts_engine
+        except Exception as exc:
+            log.warning(f"FireRedTTS3 unavailable ({exc}); trying the usual tier chain")
 
     if requested == "qwen":
         _tts_engine = QwenTTSEngine()

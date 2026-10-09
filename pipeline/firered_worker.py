@@ -147,8 +147,9 @@ def run_job(job: dict, native, bundle) -> None:
             seed=int(defaults.get("seed", 1234)),
         )
         _save(audio, out_path, sample_rate)
-        emit({"event": "segment", "idx": idx, "ok": True,
-              "path": str(out_path), "seconds": round(time.time() - started, 2)})
+        emit({"event": "segment", "idx": idx, "ok": True, "path": str(out_path),
+              "sample_rate": int(sample_rate),
+              "seconds": round(time.time() - started, 2)})
 
 
 def _save(audio, out_path: Path, sample_rate: int) -> None:

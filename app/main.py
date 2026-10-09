@@ -63,25 +63,22 @@ import time
 import webbrowser
 from contextlib import asynccontextmanager
 
-from app.config import BASE
+from pathlib import Path as _Path
 
-# Load .env file if python-dotenv is installed (HF_TOKEN, etc)
-try:
-    from dotenv import load_dotenv
-    _env_path = BASE / ".env"
-    if _env_path.exists():
-        load_dotenv(_env_path)
-        print(f"[env] Loaded {_env_path}")
-except ImportError:
-    pass  # dotenv optional
+# ── .env must load BEFORE app.config ───────────────────────────────────────
+# config builds its singleton at import time and reads os.environ *then*, so
+# values loaded afterwards were silently ignored — HF_TOKEN, OLLAMA_URL,
+# VOXCPM_*, TACHIDUBB_TTS_ENGINE and the FireRed/ComfyUI paths all lived in
+# .env but never reached ``cfg``. BASE is recomputed from this file's location
+# for exactly the same reason: importing it here would trigger that import.
+_ENV_PATH = _Path(__file__).resolve().parent.parent / ".env"
 
 
 # Load .env manually (no python-dotenv dependency) so HF_TOKEN etc. are picked up
 def _load_dotenv_simple() -> None:
-    env_path = BASE / ".env"
-    if not env_path.exists():
+    if not _ENV_PATH.exists():
         return
-    for line in env_path.read_text(encoding="utf-8").splitlines():
+    for line in _ENV_PATH.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -92,7 +89,18 @@ def _load_dotenv_simple() -> None:
             os.environ[k] = v
 
 
+# Load .env file if python-dotenv is installed (HF_TOKEN, etc)
+try:
+    from dotenv import load_dotenv
+    if _ENV_PATH.exists():
+        load_dotenv(_ENV_PATH)
+        print(f"[env] Loaded {_ENV_PATH}")
+except ImportError:
+    pass  # dotenv optional
+
 _load_dotenv_simple()
+
+from app.config import BASE  # noqa: E402 - after .env, by design (see above)
 
 # Force UTF-8 stdout for foreign-language transcripts on Windows cp1252 consoles
 try:

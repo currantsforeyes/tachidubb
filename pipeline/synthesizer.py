@@ -100,6 +100,12 @@ class BaseTTSEngine:
 
     name = "base"  # override in subclass
     default_sample_rate = 48000
+    # Anchor every clip to its source window instead of letting clips flow
+    # from a running cursor — see ``assemble_dubbed_audio(fit_to_slots=)``.
+    # Anchored engines keep speech aligned to the picture and let the
+    # assembler restore the source ambience tail, so the mix stays full
+    # length. VoxCPM/F5/Edge flow; Qwen and FireRed anchor.
+    anchors_to_slots = False
 
     def __init__(self):
         self._sample_rate = None
@@ -816,6 +822,7 @@ class QwenTTSEngine(BaseTTSEngine):
 
     name = "qwen3-tts"
     default_sample_rate = 24000
+    anchors_to_slots = True
 
     def __init__(self, project_root=None, asr_model="Qwen/Qwen3-ASR-0.6B",
                  tts_model="Qwen/Qwen3-TTS-12Hz-1.7B-Base"):
@@ -924,6 +931,281 @@ class QwenTTSEngine(BaseTTSEngine):
             segment["audio_path"] = specs[i]["output_path"] if result.get("ok") else None
             segment["tts_tier"] = "qwen3-transcript" if result.get("reference_mode") == "transcript" else "qwen3-xvector"
         return segments
+
+
+class FireRedTTSEngine(BaseTTSEngine):
+    """FireRedTTS3 zero-shot cloning, executed on **ComfyUI's Python**.
+
+    Why not our own interpreter: FireRedTTS3 wants Transformers 5.3+, and
+    ComfyUI already ships 5.14 with torch 2.11 plus ``comfy_kitchen`` for the
+    INT8 weights — while this app's venv runs transformers 4.57, where the
+    whisperx/pyannote stack the dubbing depends on lives. Launching the worker
+    with ComfyUI's interpreter leaves both environments exactly as they are:
+    no second torch, no transformers fight, and the 3.30 GB INT8 weights stay
+    on that side of the fence.
+
+    The worker (``pipeline/firered_worker.py``) loads the bundle once and then
+    serves job files over stdin in ``--daemon`` mode — the same contract
+    :class:`VoxCPMSynthesizer` uses — so a retry or a per-segment regen does
+    not pay the ~40 s model load again.
+    """
+
+    name = "firered"
+    default_sample_rate = 24000     # RedAE codec output (measured end to end)
+    anchors_to_slots = True          # anchored placement + ambience tail, as Qwen
+
+    # Probed when the caller does not say where ComfyUI lives (env var
+    # TACHIDUBB_COMFY_ROOT and an explicit comfy_root= both win over this).
+    COMFY_CANDIDATES = (
+        r"D:\ComfyUI-Easy-Install\ComfyUI",
+        r"C:\ComfyUI",
+        r"D:\ComfyUI",
+    )
+
+    # Flow-matching steps per audio patch: the pipeline's tts_speed setting
+    # maps onto generation quality the same way QwenTTSEngine maps it onto
+    # timesteps (more steps = slower, diminishing returns past the default).
+    SPEED_STEPS = {"fast": 6, "balanced": 10, "quality": 15}
+
+    def __init__(self, project_root=None, comfy_root=None, pack_dir=None,
+                 python=None, worker=None,
+                 repo="FireRedTTS3-int8", variant="fireredtts3_base"):
+        super().__init__()
+        from pathlib import Path
+        self.project_root = Path(project_root or Path(__file__).resolve().parents[1])
+        self.comfy_root = Path(comfy_root) if comfy_root else None
+        self.pack_dir = Path(pack_dir) if pack_dir else None
+        self.python = Path(python) if python else None      # test seams
+        self.worker = Path(worker) if worker else None
+        self.repo = repo
+        self.variant = variant
+        self._worker_proc = None
+        self._resolved = None
+
+    # ── discovery ────────────────────────────────────────────────────
+    @staticmethod
+    def _find_interpreter(comfy_root):
+        """ComfyUI Easy-Install ships an embedded interpreter; venvs too."""
+        import os
+        if os.name == "nt":
+            candidates = ("python_embeded/python.exe", "venv/Scripts/python.exe",
+                          "python.exe")
+        else:
+            candidates = ("python_embeded/python", "venv/bin/python", "python3")
+        for rel in candidates:
+            path = comfy_root / rel
+            if path.is_file():
+                return path
+        return None
+
+    def _paths(self):
+        if self._resolved:
+            return self._resolved
+        from pathlib import Path
+        import os
+
+        comfy = self.comfy_root
+        if comfy is None:
+            env_root = os.environ.get("TACHIDUBB_COMFY_ROOT", "").strip()
+            comfy = Path(env_root) if env_root else next(
+                (Path(p) for p in self.COMFY_CANDIDATES if Path(p).is_dir()), None)
+        if comfy is None:
+            raise RuntimeError(
+                "FireRedTTS3 borrows ComfyUI's Python (Transformers 5.3+), but no "
+                "ComfyUI install was found. Set TACHIDUBB_COMFY_ROOT or pass comfy_root=.")
+        pack = self.pack_dir or comfy / "custom_nodes" / "FireRedTTS3-ComfyUI"
+        python = self.python or self._find_interpreter(comfy)
+        worker = self.worker or self.project_root / "pipeline" / "firered_worker.py"
+        if python is None:
+            raise RuntimeError(f"No Python interpreter found under {comfy}")
+        self._resolved = (comfy, pack, Path(python), Path(worker))
+        return self._resolved
+
+    def load(self):
+        _, pack, python, worker = self._paths()
+        # _paths() returns Path objects for all three.
+        missing = [str(p) for p in (python, worker, pack / "loader.py")
+                   if not p.is_file()]
+        if missing:
+            raise RuntimeError(
+                "FireRedTTS3 runtime is incomplete (missing: "
+                + ", ".join(missing)
+                + "). Install the pack into ComfyUI/custom_nodes/FireRedTTS3-ComfyUI.")
+
+    def unload(self):
+        proc = self._worker_proc
+        self._worker_proc = None
+        if proc is not None and proc.poll() is None:
+            proc.kill()
+
+    # ── synthesis ────────────────────────────────────────────────────
+    def synthesize_segments(self, segments, output_dir, speaker_refs=None,
+                            speaker_transcripts=None, progress_callback=None,
+                            voice_seed=None, tts_speed="balanced",
+                            is_cross_lingual=False, target_lang="en"):
+        import json
+        import subprocess
+
+        self.load()
+        comfy, pack, python, worker = self._paths()
+
+        speaker_refs = {k: v for k, v in (speaker_refs or {}).items()
+                        if v and os.path.exists(v)}
+        if not speaker_refs:
+            raise RuntimeError(
+                "FireRed voice cloning needs a reference voice — a source "
+                "speaker clip or an uploaded reference.")
+        os.makedirs(output_dir, exist_ok=True)
+
+        language = (target_lang or "en").strip().lower()
+        empty_text = set()
+        specs = []
+        for i, segment in enumerate(segments):
+            speaker = segment.get("speaker", "SPEAKER_00")
+            text = _spoken_text(segment)
+            if not text:
+                # Nothing to say: leave audio_path unset rather than asking the
+                # model to synthesise an empty string.
+                empty_text.add(i)
+                continue
+            ref = speaker_refs.get(speaker) or next(iter(speaker_refs.values()))
+            specs.append({
+                "idx": i,                          # original segment index
+                "text": text,
+                "language": language,              # the worker maps ISO -> tag
+                "prompt_audio": ref,
+                "prompt_text": (speaker_transcripts or {}).get(speaker, "") or "",
+                "output": os.path.join(output_dir, f"seg_{i:04d}.wav"),
+            })
+        if not specs:
+            for segment in segments:
+                segment.setdefault("audio_path", None)
+            return segments
+
+        job = {
+            "backend": {"comfy_root": str(comfy), "pack_dir": str(pack),
+                        "repo": self.repo, "variant": self.variant,
+                        "dtype": "auto", "device": "auto", "attention": "auto",
+                        "download_if_missing": True},
+            "defaults": {
+                "n_timesteps": self.SPEED_STEPS.get(tts_speed, 10),
+                "inference_cfg": 2.0,     # official default for cloning
+                "stop_threshold": 0.5,
+                "seed": int(voice_seed) if voice_seed else 1234,
+            },
+            "segments": specs,
+        }
+        job_path = os.path.join(output_dir, "_firered_tts_job.json")
+        with open(job_path, "w", encoding="utf-8") as handle:
+            json.dump(job, handle, ensure_ascii=False)
+
+        env = os.environ.copy()
+        env.update({"PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1",
+                    "HF_HUB_DISABLE_PROGRESS_BARS": "1", "TQDM_DISABLE": "1"})
+
+        spawned = False
+        proc = self._worker_proc
+        if proc is None or proc.poll() is not None:
+            spawned = True
+            self.unload()
+            stderr_path = os.path.join(output_dir, "firered_tts_worker.log")
+            stderr_fh = open(stderr_path, "w", encoding="utf-8", errors="replace")
+            log.info(f"Launching FireRedTTS3 worker on {python.name} ({self.repo})")
+            self._worker_proc = subprocess.Popen(
+                [str(python), "-u", str(worker), "--daemon", job_path],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr_fh,
+                text=True, encoding="utf-8", errors="replace", bufsize=1, env=env)
+        else:
+            # Reuse the loaded bundle: hand the daemon its next job on stdin.
+            try:
+                proc.stdin.write(job_path + "\n")
+                proc.stdin.flush()
+            except Exception as exc:
+                log.warning(f"FireRed worker stdin write failed, respawning: {exc}")
+                self.unload()
+                spawned = True
+                stderr_path = os.path.join(output_dir, "firered_tts_worker.log")
+                stderr_fh = open(stderr_path, "w", encoding="utf-8", errors="replace")
+                self._worker_proc = subprocess.Popen(
+                    [str(python), "-u", str(worker), "--daemon", job_path],
+                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr_fh,
+                    text=True, encoding="utf-8", errors="replace", bufsize=1, env=env)
+
+        results, fatal, closed = {}, None, False
+        while True:
+            line = self._worker_proc.stdout.readline()
+            if not line:                     # EOF: the daemon died
+                closed = True
+                break
+            line = line.strip()
+            if not line or not line.startswith("{"):
+                continue                      # tqdm / warnings interleave
+            try:
+                evt = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            kind = evt.get("event")
+            if kind == "loading":
+                log.info(f"FireRedTTS3: loading {evt.get('model')}")
+            elif kind == "loaded":
+                log.info(f"FireRedTTS3 bundle ready in {evt.get('seconds')}s")
+            elif kind == "segment":
+                results[evt.get("idx")] = evt
+                if evt.get("sample_rate"):
+                    self._sample_rate = int(evt["sample_rate"])
+                if progress_callback:
+                    progress_callback(len(results), len(specs))
+            elif kind == "fatal":
+                fatal = evt.get("error") or "unknown worker error"
+            elif kind == "job_done":
+                break
+        if spawned and stderr_fh is not None:
+            stderr_fh.close()
+
+        if fatal:
+            raise RuntimeError(f"FireRedTTS3 worker failed: {fatal}")
+        if closed:
+            raise RuntimeError(
+                "FireRedTTS3 worker exited unexpectedly; see "
+                f"{os.path.join(output_dir, 'firered_tts_worker.log')}")
+
+        for i, segment in enumerate(segments):
+            if i in empty_text:
+                segment["audio_path"] = None
+                continue
+            result = results.get(i, {})
+            segment["audio_path"] = (specs_output(specs, i)
+                                     if result.get("ok") else None)
+            segment["tts_tier"] = "firered"
+        return segments
+
+
+def specs_output(specs, index):
+    """Output path the worker was asked to write for segment ``index``."""
+    for spec in specs:
+        if spec["idx"] == index:
+            return spec["output"]
+    return None
+
+
+# Engines the pipeline drives synchronously — they block on their own worker
+# process. Anything else must implement ``synthesize_segments_async``.
+SYNC_ENGINES = (VoxCPMSynthesizer, QwenTTSEngine, FireRedTTSEngine)
+
+# ``tts_tier`` prefixes that mean "placement was anchored to the source
+# window". Stored with the checkpoint so later rebuilds (Apply timing, stem
+# refresh) reproduce how the mix was originally assembled.
+ANCHORED_TIERS = ("qwen3", "firered")
+
+
+def segments_anchored(segments) -> bool:
+    """True when any segment came from an anchoring engine.
+
+    Mirrors the live ``engine.anchors_to_slots`` flag for jobs rebuilt from a
+    checkpoint, where the engine instance is long gone.
+    """
+    return any(str(s.get("tts_tier") or "").startswith(ANCHORED_TIERS)
+               for s in (segments or []))
 
 
 class F5TTSEngine(BaseTTSEngine):

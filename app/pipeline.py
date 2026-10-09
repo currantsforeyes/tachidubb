@@ -36,7 +36,7 @@ from pipeline.diarizer import (
 )
 from pipeline.downloader import download_video
 from pipeline.showcase import save_placements
-from pipeline.synthesizer import QwenTTSEngine, VoxCPMSynthesizer
+from pipeline.synthesizer import SYNC_ENGINES, VoxCPMSynthesizer
 from pipeline.transcriber import transcribe
 from pipeline.translator import translate_segments, unload_ollama_model
 from pipeline.vad import apply_vad_filter, restore_original_times
@@ -600,7 +600,7 @@ async def run_pipeline(
             pct = 65 + int((done / max(total, 1)) * 20)
             update(progress=min(pct, 85), step_detail=f"Synthesizing: {done}/{total}")
 
-        if isinstance(tts, (VoxCPMSynthesizer, QwenTTSEngine)):
+        if isinstance(tts, SYNC_ENGINES):
             segments = tts.synthesize_segments(
                 segments, tts_dir,
                 speaker_refs=speaker_refs,
@@ -663,8 +663,8 @@ async def run_pipeline(
         dubbed_wav = str(work / "dubbed_audio.wav")
         assemble_dubbed_audio(
             segments, duration, dubbed_wav, tts.sample_rate, apply_loudnorm=True,
-            fit_to_slots=isinstance(tts, QwenTTSEngine),
-            tail_audio_path=audio_full if isinstance(tts, QwenTTSEngine) else "",
+            fit_to_slots=getattr(tts, "anchors_to_slots", False),
+            tail_audio_path=audio_full if getattr(tts, "anchors_to_slots", False) else "",
         )
         save_placements(work, segments)
 
@@ -674,7 +674,7 @@ async def run_pipeline(
         update(progress=91, step_detail="Rendering speaker stems...")
         refresh_speaker_stems(segments, duration, work,
                               sample_rate=tts.sample_rate,
-                              fit_to_slots=isinstance(tts, QwenTTSEngine))
+                              fit_to_slots=getattr(tts, "anchors_to_slots", False))
 
         # 8. Merge with video
         update(status="merging", progress=93, step_detail="Rendering final video...")
@@ -872,7 +872,7 @@ async def _run_tts_and_merge_stage(
 
     if total > 0:
         _apply_pronunciation(synth_input)
-        if isinstance(tts, (VoxCPMSynthesizer, QwenTTSEngine)):
+        if isinstance(tts, SYNC_ENGINES):
             # Determine cross-lingual from state (may be missing from older
             # checkpoints — in that case assume cross-lingual as a safer default
             # since that's the common dubbing use-case)
@@ -915,8 +915,8 @@ async def _run_tts_and_merge_stage(
     tail_src = state.get("audio_full") or state.get("audio_16k", "")
     assemble_dubbed_audio(
         segments, state["duration"], dubbed_wav, tts.sample_rate,
-        apply_loudnorm=True, fit_to_slots=isinstance(tts, QwenTTSEngine),
-        tail_audio_path=tail_src if isinstance(tts, QwenTTSEngine) else "",
+        apply_loudnorm=True, fit_to_slots=getattr(tts, "anchors_to_slots", False),
+        tail_audio_path=tail_src if getattr(tts, "anchors_to_slots", False) else "",
     )
     save_placements(work, segments)
 
@@ -924,7 +924,7 @@ async def _run_tts_and_merge_stage(
     update(progress=91, step_detail="Rendering speaker stems...")
     refresh_speaker_stems(segments, state["duration"], work,
                           sample_rate=tts.sample_rate,
-                          fit_to_slots=isinstance(tts, QwenTTSEngine))
+                          fit_to_slots=getattr(tts, "anchors_to_slots", False))
 
     update(status="merging", progress=93, step_detail="Rendering final video...")
     output_mp4 = str(work / "dubbed_video.mp4")
