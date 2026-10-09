@@ -1084,6 +1084,12 @@ class FireRedTTSEngine(BaseTTSEngine):
                 "language": language,              # the worker maps ISO -> tag
                 "prompt_audio": ref,
                 "prompt_text": (speaker_transcripts or {}).get(speaker, "") or "",
+                # The source window this segment was cut from: the worker
+                # budgets generation from it so one stop-token failure cannot
+                # emit a 64s clip into a 1s slot.
+                "slot_seconds": round(max(
+                    float(segment.get("end", 0)) - float(segment.get("start", 0)),
+                    0.0), 3),
                 "output": os.path.join(output_dir, f"seg_{i:04d}.wav"),
             })
         if not specs:
@@ -1162,6 +1168,13 @@ class FireRedTTSEngine(BaseTTSEngine):
                 results[evt.get("idx")] = evt
                 if evt.get("sample_rate"):
                     self._sample_rate = int(evt["sample_rate"])
+                # Per-segment timing: a whole TTS stage can run for many
+                # minutes, and without this the only signal is silence.
+                overrun = (f"  OVERRUN +{evt.get('overrun')}s" if evt.get("overrun")
+                           else "")
+                log.info(f"FireRedTTS3 segment {evt.get('idx')}: "
+                         f"{evt.get('audio_seconds')}s of audio in "
+                         f"{evt.get('seconds')}s{overrun}")
                 if progress_callback:
                     progress_callback(len(results), len(specs))
             elif kind == "fatal":

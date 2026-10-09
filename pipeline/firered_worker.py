@@ -46,6 +46,24 @@ LANGUAGE_TAGS = {
     "ar": "Arabic", "hi": "Hindi", "nl": "Dutch",
 }
 
+# 25 latent frames per second, 4 latents per AR step -> 6.25 steps per second
+# of audio. Taken from the ComfyUI pack's own _max_gen_steps().
+STEPS_PER_SECOND = 25.0 / 4.0
+
+# Safety net against a stop-token failure. Left unchecked, the model falls back
+# to its hard ceiling of 400 steps = 64s of audio, which on a 1.02s window then
+# sat underneath the rest of the dub as ~10s of double speech. Anchor the cap to
+# the source window instead: real translations run well inside 2x the window,
+# and tiny fragments still get enough steps to speak.
+MAX_WINDOW_FACTOR = 2.0
+MIN_AUDIO_SECONDS = 2.0
+
+
+def max_gen_steps_for(slot_seconds) -> int:
+    """AR-step budget for a segment, from the source window it belongs to."""
+    seconds = max(float(slot_seconds) * MAX_WINDOW_FACTOR, MIN_AUDIO_SECONDS)
+    return max(6, int(round(seconds * STEPS_PER_SECOND)))
+
 
 def emit(event: dict) -> None:
     print(json.dumps(event, ensure_ascii=False), flush=True)
@@ -132,6 +150,7 @@ def run_job(job: dict, native, bundle) -> None:
 
         out_path = Path(seg["output"])
         out_path.parent.mkdir(parents=True, exist_ok=True)
+        slot = float(seg.get("slot_seconds") or 0.0)
         started = time.time()
         audio, sample_rate = native.base_clone_one(
             bundle,
@@ -145,11 +164,22 @@ def run_job(job: dict, native, bundle) -> None:
             n_timesteps=int(defaults.get("n_timesteps", 10)),
             inference_cfg=float(defaults.get("inference_cfg", 2.0)),
             seed=int(defaults.get("seed", 1234)),
+            # Window-anchored budget. Without it the core falls back to 400
+            # steps = 64s, and one stop-token failure produced a 64s clip for a
+            # 1.02s window that then played under the rest of the dub.
+            max_gen_steps=(max_gen_steps_for(slot) if slot > 0 else None),
         )
         _save(audio, out_path, sample_rate)
-        emit({"event": "segment", "idx": idx, "ok": True, "path": str(out_path),
-              "sample_rate": int(sample_rate),
-              "seconds": round(time.time() - started, 2)})
+        produced = float(audio.shape[-1]) / float(sample_rate)
+        event = {"event": "segment", "idx": idx, "ok": True,
+                 "path": str(out_path), "sample_rate": int(sample_rate),
+                 "audio_seconds": round(produced, 2),
+                 "seconds": round(time.time() - started, 2)}
+        if slot > 0 and produced > slot * MAX_WINDOW_FACTOR + 0.25:
+            # Not fatal (the assembler tolerates spill) but worth surfacing:
+            # this is what a run-up-to-the-cap clip looks like.
+            event["overrun"] = round(produced - slot, 2)
+        emit(event)
 
 
 def _save(audio, out_path: Path, sample_rate: int) -> None:

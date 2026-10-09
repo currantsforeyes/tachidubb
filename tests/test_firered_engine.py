@@ -206,6 +206,19 @@ def test_job_file_carries_the_backend_and_speed_mapping(engine, tmp_path):
     assert seg["prompt_text"] == "the reference transcript"
 
 
+def test_job_file_carries_the_window_the_worker_budgets_from(engine, tmp_path):
+    """The source window is what keeps generation from running to the cap."""
+    out_dir = tmp_path / "tts"
+    segments = [{"idx": 0, "speaker": "SPEAKER_00", "translated_text": "Hi",
+                 "start": 3.0, "end": 6.5}]
+
+    engine.synthesize_segments(segments, str(out_dir),
+                               speaker_refs=_refs(tmp_path), target_lang="en")
+
+    job = json.loads((out_dir / "_firered_tts_job.json").read_text(encoding="utf-8"))
+    assert job["segments"][0]["slot_seconds"] == 3.5
+
+
 def test_empty_text_is_skipped_and_never_reaches_the_worker(
         engine, tmp_path, monkeypatch):
     monkeypatch.setenv("STUB_MODE", "fatal")   # would fail if it were called

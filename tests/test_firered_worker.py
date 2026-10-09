@@ -31,10 +31,11 @@ LANGS_JS = ROOT / "frontend" / "src" / "constants.js"
 class FakeNative:
     """Stands in for the pack's native module."""
 
-    def __init__(self):
+    def __init__(self, audio_seconds=0.1):
         self.prompt_calls = 0
         self.spk_calls = 0
         self.clone_calls = []
+        self._samples = int(audio_seconds * 16000)
 
     def tokenize_prompt_audio(self, bundle, audio, sr):
         self.prompt_calls += 1
@@ -46,7 +47,7 @@ class FakeNative:
 
     def base_clone_one(self, bundle, **kwargs):
         self.clone_calls.append(kwargs)
-        return torch.zeros(1, 1600), 16000  # 0.1 s of audio
+        return torch.zeros(1, self._samples), 16000
 
 
 @pytest.fixture
@@ -186,6 +187,44 @@ def test_segment_without_a_reference_clip_is_rejected(tmp_path, native):
 
     with pytest.raises(ValueError, match="no prompt_audio"):
         fw.run_job({"segments": segments}, native, "bundle")
+
+
+def test_generation_budget_is_anchored_to_the_source_window():
+    """Regression: a 1.02s window ran to the model's 400-step (64s) ceiling.
+
+    That 64s clip was then placed in a 1.02s slot and sat underneath the rest
+    of the dub as ~10s of double speech. The budget now comes from the window.
+    """
+    assert fw.max_gen_steps_for(1.02) == 13      # was 400 (64s of audio)
+    assert fw.max_gen_steps_for(0.1) >= 6        # tiny fragments still speak
+    assert fw.max_gen_steps_for(9.0) > 100       # long windows keep room
+    assert fw.STEPS_PER_SECOND == 6.25           # 25 latent frames / 4 latents
+
+
+def test_run_job_passes_the_window_budget_to_the_model(tmp_path, native, capsys):
+    job = _job(tmp_path)
+    job["segments"][0]["slot_seconds"] = 1.02
+    job["segments"][1]["slot_seconds"] = 9.09
+
+    fw.run_job(job, native, "bundle")
+
+    steps = [c["max_gen_steps"] for c in native.clone_calls]
+    assert steps == [fw.max_gen_steps_for(1.02), fw.max_gen_steps_for(9.09)]
+
+
+def test_segment_event_reports_audio_length_and_overrun(tmp_path, capsys):
+    long_native = FakeNative(audio_seconds=5.0)
+    job = _job(tmp_path)
+    job["segments"][0]["slot_seconds"] = 1.0
+
+    fw.run_job(job, long_native, "bundle")
+
+    events = _events(capsys)          # read once: readouterr() drains
+    first = events[0]
+    assert first["audio_seconds"] == 5.0
+    assert first["overrun"] == 4.0, "an overrun must be surfaced, not hidden"
+    # Second segment has no slot, so no overrun can be judged for it.
+    assert "overrun" not in events[1]
 
 
 def test_job_without_segments_is_rejected(tmp_path, native):
