@@ -96,6 +96,7 @@ class TachiDUBBClient:
         voice_style: str = "",
         tts_speed: str = "balanced",
         speaker_mode: str = "main",
+        speaker_count: int = 0,
         keep_bg: bool = False,
         auto_denoise: bool = False,
         narration_mode: bool = False,
@@ -112,6 +113,10 @@ class TachiDUBBClient:
             "voice_style": voice_style,
             "tts_speed": tts_speed,
             "speaker_mode": speaker_mode,
+            # 0 = let pyannote decide. Without it the API defaults to auto,
+            # which silently produced a single-speaker diarization on a clip
+            # that the UI had submitted with speaker_count=3.
+            "speaker_count": str(int(speaker_count)),
             "keep_bg": str(bool(keep_bg)).lower(),
             "auto_denoise": str(bool(auto_denoise)).lower(),
             "narration_mode": str(bool(narration_mode)).lower(),

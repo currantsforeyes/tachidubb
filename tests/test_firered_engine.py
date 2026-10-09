@@ -143,6 +143,26 @@ def test_comfy_root_without_a_python_is_reported(tmp_path, stub):
         FireRedTTSEngine(comfy_root=tmp_path, worker=stub)._paths()
 
 
+def test_easy_install_layout_finds_the_interpreter_beside_the_comfy_folder(tmp_path):
+    """ComfyUI Easy-Install puts python_embeded NEXT TO ComfyUI, not inside it.
+
+    Probing only the code root found nothing and the job silently fell back to
+    Edge-TTS, which is exactly what the first comparison run did.
+    """
+    import os
+    install = tmp_path / "ComfyUI-Easy-Install"
+    (install / "ComfyUI").mkdir(parents=True)          # the code root
+    embed = install / "python_embeded"
+    embed.mkdir()
+    exe = "python.exe" if os.name == "nt" else "python"
+    (embed / exe).write_bytes(b"")
+
+    eng = FireRedTTSEngine(comfy_root=install / "ComfyUI")
+    _, _, python, _ = eng._paths()
+
+    assert python == embed / exe
+
+
 # ── synthesis ────────────────────────────────────────────────────────
 def test_synthesizes_every_segment_and_marks_them_anchored(engine, tmp_path):
     refs = _refs(tmp_path)

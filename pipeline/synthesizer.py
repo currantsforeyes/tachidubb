@@ -985,17 +985,26 @@ class FireRedTTSEngine(BaseTTSEngine):
     # ── discovery ────────────────────────────────────────────────────
     @staticmethod
     def _find_interpreter(comfy_root):
-        """ComfyUI Easy-Install ships an embedded interpreter; venvs too."""
+        """Locate ComfyUI's Python across the layouts we know about.
+
+        ComfyUI **Easy-Install** keeps the interpreter *beside* the ComfyUI
+        folder — ``<install>/python_embeded/python.exe`` next to
+        ``<install>/ComfyUI/main.py`` — so probing only inside the code root
+        finds nothing (which is how a run silently fell back to Edge-TTS).
+        Classic installs keep a venv inside the root instead, and that is
+        preferred when both exist.
+        """
         import os
         if os.name == "nt":
-            candidates = ("python_embeded/python.exe", "venv/Scripts/python.exe",
-                          "python.exe")
+            names = ("python_embeded/python.exe", "venv/Scripts/python.exe",
+                     "python.exe")
         else:
-            candidates = ("python_embeded/python", "venv/bin/python", "python3")
-        for rel in candidates:
-            path = comfy_root / rel
-            if path.is_file():
-                return path
+            names = ("python_embeded/python", "venv/bin/python", "python3")
+        for base in (comfy_root, comfy_root.parent):
+            for rel in names:
+                path = base / rel
+                if path.is_file():
+                    return path
         return None
 
     def _paths(self):
