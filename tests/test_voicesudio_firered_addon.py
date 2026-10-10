@@ -27,10 +27,26 @@ import soundfile as sf
 
 REPO = Path(__file__).resolve().parents[1]
 SIDECAR = REPO / "voicesudio_addon" / "fireredtts3" / "main.py"
-VS_BACKEND = Path(
-    os.environ.get("TACHIDUBB_VS_BACKEND")
-    or (Path(os.environ.get("APPDATA", "")) / "VoiceStudio" / "runtime" / "project" / "backend")
-)
+
+
+def _vs_backends() -> list[Path]:
+    """Both trees VoiceStudio reads: the install-time source (resources) and
+    the live runtime tree. The app re-extracts the latter from the former on
+    launch, so a real install shows up in resources/ (and usually both)."""
+    out: list[Path] = []
+    override = os.environ.get("TACHIDUBB_VS_BACKEND")
+    if override:
+        out.append(Path(override))
+        return out
+    local = os.environ.get("LOCALAPPDATA")
+    appdata = os.environ.get("APPDATA")
+    if local:
+        out.append(Path(local) / "Programs" / "VoiceStudio" / "resources" / "backend")
+    if appdata:
+        out.append(
+            Path(appdata) / "VoiceStudio" / "runtime" / "project" / "backend"
+        )
+    return out
 
 _mod = None
 
@@ -219,16 +235,30 @@ def test_sidecar_load_failure_reports_error(tmp_path, monkeypatch):
 
 
 def test_installed_engine_files_and_registry():
-    engines = VS_BACKEND / "engines" / "fireredtts3"
-    registry = VS_BACKEND / "services" / "tts_backend.py"
-    if not registry.exists():
-        pytest.skip("VoiceStudio not installed on this machine")
-    if not (engines / "main.py").exists():
-        pytest.skip("engine not installed yet - run tools/install_voicesudio_firered.py")
-
     import py_compile
 
-    for name in ("__init__.py", "main.py"):
-        py_compile.compile(str(engines / name), doraise=True)
-    text = registry.read_text(encoding="utf-8", errors="replace")
-    assert '"fireredtts3": ("engines.fireredtts3", "FireRedTTS3Backend")' in text
+    trees = [b for b in _vs_backends() if (b / "services" / "tts_backend.py").exists()]
+    if not trees:
+        pytest.skip("VoiceStudio not installed on this machine")
+    installed = [b for b in trees if (b / "engines" / "fireredtts3" / "main.py").exists()]
+    if not installed:
+        pytest.skip("engine not installed yet - run tools/install_voicesudio_firered.py")
+
+    for backend in installed:
+        for name in ("__init__.py", "main.py"):
+            py_compile.compile(
+                str(backend / "engines" / "fireredtts3" / name), doraise=True
+            )
+        text = (backend / "services" / "tts_backend.py").read_text(
+            encoding="utf-8", errors="replace"
+        )
+        assert '"fireredtts3": ("engines.fireredtts3", "FireRedTTS3Backend")' in text
+
+    # resources is the source of truth the app re-extracts from: if that tree
+    # exists, it MUST carry the wiring, or the next launch wipes the engine.
+    resources = [b for b in trees if "resources" in b.parts]
+    for backend in resources:
+        assert backend in installed, (
+            "resources/backend exists but lacks the engine - the next app "
+            "launch would wipe it; re-run tools/install_voicesudio_firered.py"
+        )

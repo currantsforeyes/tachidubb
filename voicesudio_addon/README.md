@@ -37,9 +37,19 @@ Then **restart VoiceStudio** and pick
 "FireRedTTS3 (15-lang zero-shot clone · ComfyUI runtime)" in the engine
 picker.
 
+**Persistence.** VoiceStudio re-extracts
+`%APPDATA%/VoiceStudio/runtime/project` from its install-time source
+`<install>/resources/backend` on *every launch* — patching the runtime tree
+alone gets deleted and reverted within one restart (observed: engine folder
+removed, registry edit restored to its packaged mtime, all engine dirs
+re-created seconds apart). `app.asar` holds no backend source, so
+`resources/backend` is the only source of truth: the installer patches **both
+trees**, and every re-extraction then carries the engine forward. An app
+update replaces `resources/` — re-run the installer after updating.
+
 Uninstall: remove the `"fireredtts3"` entry from
-`services/tts_backend.py::_LAZY_REGISTRY` (original backed up as
-`tts_backend.py.bak-firered`) and delete `backend/engines/fireredtts3/`.
+`services/tts_backend.py::_LAZY_REGISTRY` in both trees (originals backed up
+as `tts_backend.py.bak-firered`) and delete `backend/engines/fireredtts3/`.
 
 ## Configuration
 
