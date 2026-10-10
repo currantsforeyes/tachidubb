@@ -64,6 +64,27 @@ Output is the pack's native **24 kHz**; VoiceStudio masters/resamples as it
 does for every engine. Loaded model holds ~6.8 GB VRAM while resident and is
 reaped when idle.
 
+## Video timeline: VoiceStudio job → OpenShot project
+
+VoiceStudio has no video timeline; OpenShot does. Export any dub job folder:
+
+```bash
+python tools/export_voicesudio_to_openshot.py "%APPDATA%\OmniVoice\dub_jobs\<id>"
+```
+
+Writes `<job>/openshot.osp` — picture on top (original.mp4, audio muted),
+then the full-length dub (audible), the per-segment dub clips placed at each
+segment's source start (muted; mute the full dub to work line by line), the
+background stem (audible) and the source speech lane (muted). Segment timings
+come from VoiceStudio's `omnivoice.db` (`dub_history.job_data.segments`);
+without the db the export still works, minus the segment track.
+
+Verified end-to-end against OpenShot 4.0.1: loads with a clean log
+(`Loaded project ...`, no exceptions), autosave round-trips, mute states and
+segment positions preserved. Schema notes are in the exporter's docstring —
+including the `version` trap: `_default.project` ships `0.0.0`, which sends
+OpenShot down a legacy upgrade path that expects full clip keyframes.
+
 ## Verified
 
 - 7 contract tests (wire round-trip on the stub, step budget, PCM encoding,
