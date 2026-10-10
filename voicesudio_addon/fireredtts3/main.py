@@ -64,6 +64,7 @@ MIN_AUDIO_SECONDS = 2.0
 _FRAME_FD: int | None = None
 _NATIVE = None
 _BUNDLE = None
+_STUB = False
 _PROMPT_CACHE: dict = {}
 
 
@@ -253,7 +254,9 @@ def _prompt_for(ref_path: str):
     if hit is not None:
         return hit
     mono, sr = _read_reference(ref_path)
-    waveform = _to_waveform(mono)
+    # The real pack wants a (1, T) torch tensor; the stub only reads .shape,
+    # so stub mode stays torch-free (CI's requirements-dev has no torch).
+    waveform = _to_waveform(mono) if not _STUB else mono
     entry = (
         _NATIVE.tokenize_prompt_audio(_BUNDLE, waveform, sr),
         _NATIVE.speaker_embedding(_BUNDLE, waveform, sr),
@@ -353,8 +356,9 @@ def _vram_mb() -> int:
 
 def _load() -> None:
     """Cold load, once: progress frames are legal mid-generate."""
-    global _NATIVE, _BUNDLE
-    _NATIVE, _BUNDLE = _load_model(_env("OMNIVOICE_FIRERED_STUB") == "1")
+    global _NATIVE, _BUNDLE, _STUB
+    _STUB = _env("OMNIVOICE_FIRERED_STUB") == "1"
+    _NATIVE, _BUNDLE = _load_model(_STUB)
 
 
 def main() -> int:

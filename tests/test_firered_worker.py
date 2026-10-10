@@ -19,9 +19,12 @@ from pathlib import Path
 import numpy as np
 import pytest
 import soundfile as sf
-import torch
 
-from pipeline import firered_worker as fw
+# CI (requirements-dev.txt) is deliberately torch-free; this module needs the
+# real tensor path, so it runs where torch exists and skips where it does not.
+torch = pytest.importorskip("torch")
+
+from pipeline import firered_worker as fw  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 LANGS_JS = ROOT / "frontend" / "src" / "constants.js"
