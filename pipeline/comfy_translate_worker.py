@@ -98,7 +98,6 @@ def _load_llama(path, n_threads: int = 0):
 
 
 def _load_hf(path):
-    import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
     tok = AutoTokenizer.from_pretrained(str(path), trust_remote_code=True)
